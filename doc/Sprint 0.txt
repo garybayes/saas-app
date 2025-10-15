@@ -1,0 +1,215 @@
+🏁 Sprint 0 — Environment Setup (Updated for Tailwind v4)
+
+Objective: Prepare a fully functional local development environment for the SaaS project, using Next.js 15, Tailwind CSS v4, and GitHub version control.
+Result: A working dev server at http://localhost:3000
+ with Tailwind styles applied.
+
+1️⃣ Project Directory
+
+Use:
+
+C:\projects\saas-app
+
+
+This will be the project root for all commands.
+
+2️⃣ Create the Next.js App
+npx create-next-app@latest .
+
+
+When prompted:
+
+TypeScript: Yes
+
+ESLint: Yes
+
+Tailwind CSS: No (we’ll add v4 manually)
+
+App Router: Yes
+
+src Directory: Yes
+
+Import Alias: @/*
+
+When it finishes, verify:
+
+C:\projects\saas-app
+│
+├── package.json
+├── next.config.mjs
+└── src
+    └── app
+        ├── page.jsx
+        ├── layout.jsx
+        └── globals.css
+
+3️⃣ Install Tailwind CSS v4
+npm install -D tailwindcss @tailwindcss/cli
+
+4️⃣ Configure Tailwind Files
+4.1 globals.css
+
+Replace the content of:
+
+src/app/globals.css
+
+
+with:
+
+@import "tailwindcss";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+This imports Tailwind’s core styles and layers.
+
+4.2 Optional tailwind.config.js (for Dark Mode and Theme Extension)
+
+Create:
+
+C:\projects\saas-app\tailwind.config.js
+
+
+Add:
+
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ["./src/**/*.{js,jsx,ts,tsx}"],
+  theme: {
+    extend: {},
+  },
+  darkMode: "class", // enables dark/light toggle
+  plugins: [],
+};
+
+
+This file is optional in v4 but required for customization.
+
+5️⃣ Build and Watch Tailwind CSS
+
+Run:
+
+npx tailwindcss -i ./src/app/globals.css -o ./src/app/output.css --watch
+
+
+This command continuously watches for changes and rebuilds Tailwind output.
+
+Keep it running while you develop.
+To stop it later, press Ctrl + C.
+
+6️⃣ Run the Next.js App
+
+Open a new PowerShell tab (so the watcher can keep running) and execute:
+
+npm run dev
+
+
+Visit http://localhost:3000
+ in your browser.
+If you add this to src/app/page.jsx:
+
+export default function Home() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900 text-blue-600">
+      <h1 className="text-3xl font-bold">Tailwind v4 is Working!</h1>
+    </div>
+  );
+}
+
+
+you should see the blue heading centered on the page.
+
+7️⃣ Version Control with GitHub
+
+Create a GitHub repository named saas-app.
+
+In PowerShell:
+
+git init
+git remote add origin https://github.com/<yourusername>/saas-app.git
+git add .
+git commit -m "Sprint 0 complete - initial setup with Tailwind v4"
+git branch -M main
+git push -u origin main
+
+
+Confirm files appear online in GitHub.
+
+✅ Sprint 0 Deliverable Checklist
+Item	Status
+Node.js and npm installed	✅
+Next.js app created	✅
+Tailwind CSS v4 installed and building	✅
+Dev server runs at localhost:3000	✅
+GitHub repo initialized and pushed	✅
+
+🔄 Transition Note — Tailwind v3 → v4 and Next.js Pages → App Router
+
+Purpose: Explain why earlier setup steps (from the Tailwind v3/Next.js 12–13 guide) are no longer part of Sprint 0.
+
+🧩 1️⃣ Background
+
+Earlier versions of Next.js used the src/pages/ directory to define routes, and Tailwind CSS v3 required manual setup of multiple files, such as:
+
+src/pages/index.js
+src/styles/globals.css
+postcss.config.js
+tailwind.config.js
+
+
+Those steps were necessary because Tailwind v3 relied on PostCSS and the “Pages Router” architecture.
+
+⚙️ 2️⃣ What Changed in Tailwind v4 and Next.js 13+
+
+Tailwind v4 eliminated PostCSS and now compiles directly from your input CSS.
+
+No need for postcss.config.js.
+
+No need for manual plugin setup.
+
+Next.js 13+ (App Router) replaced src/pages/ with src/app/ to unify pages, layouts, and styles in one place.
+
+Routes are automatically generated from folders under src/app/.
+
+Global styles (like Tailwind’s base layers) live in src/app/globals.css.
+
+Together, these changes simplify the project structure dramatically.
+
+✅ 3️⃣ Current Project Structure (v4-Compatible)
+C:\projects\saas-app
+│
+├── package.json
+├── next.config.mjs
+├── tailwind.config.js
+│
+└── src
+    └── app
+        ├── globals.css      ← Tailwind input file
+        ├── layout.jsx       ← Global layout wrapper
+        ├── page.jsx         ← Default route ("/")
+        └── output.css       ← Generated Tailwind output
+
+🚀 4️⃣ Going Forward
+
+All new routes and features (e.g., /settings, /dashboard, /workflow-builder) will be created inside:
+
+src/app/
+
+
+Each route will have its own folder and page.jsx, for example:
+
+src/app/settings/page.jsx
+src/app/dashboard/page.jsx
+
+
+The older src/pages/ directory will never be used again in this project.
+
+🧠 Summary
+Area	Old (v3)	New (v4)
+Routing	src/pages/	src/app/
+CSS Build	PostCSS	Tailwind CLI
+Global Styles	styles/globals.css	app/globals.css
+Config Required	tailwind.config.js, postcss.config.js	Optional tailwind.config.js only
+Output	Automatic	Manual CLI or integrated build
