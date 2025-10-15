@@ -1,36 +1,80 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🧠 AI Buddy – SaaS Platform
 
-## Getting Started
+A modular **AI workflow automation platform** built with **Next.js + TailwindCSS**.  
+Connect your favorite tools, automate tasks, and build no-code workflows in minutes.
 
-First, run the development server:
+---
 
+## 🚀 Features
+- 🔗 **App Connections** – Connect APIs from tools like Notion, Google Drive, or Slack  
+- ⚙️ **Workflow Builder** – Drag-and-drop automation designer  
+- 📊 **Dashboard** – Unified command center for tasks and analytics  
+- 👋 **Guided Setup** – Easy onboarding with step-by-step wizard  
+- 🌈 **Tailwind UI** – Clean, responsive, and theme-ready interface  
+
+---
+
+## 🛠️ Tech Stack
+| Layer | Technology |
+|--------|-------------|
+| Frontend | Next.js 15, React, TailwindCSS |
+| UI Components | ShadCN/UI, Lucide Icons |
+| State / Logic | Zustand / React Context |
+| Backend (planned) | Next.js API Routes or Supabase |
+| Database | PostgreSQL (via Prisma ORM) |
+| Auth | Clerk / Auth.js (TBD) |
+
+---
+
+## 🧩 Project Structure
+src/
+├── app/
+│ ├── globals.css
+│ ├── layout.tsx
+│ ├── page.tsx
+│ ├── (screens)/
+│ │ ├── screen1-welcome/
+│ │ ├── screen2-connections/
+│ │ └── screen3-dashboard/
+├── components/
+└── lib/
+tailwind.config.js
+postcss.config.js
+
+---
+
+## 🧰 Local Setup
 ```bash
+# 1. Clone the repo
+git clone https://github.com/YOUR_USERNAME/aibuddy-saas.git
+cd aibuddy-saas
+
+# 2. Install dependencies
+npm install
+
+# 3. Run dev server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then open http://localhost:3000
+.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+🧭 Deployment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Ready to deploy on:
 
-## Learn More
+Vercel (recommended)
 
-To learn more about Next.js, take a look at the following resources:
+Netlify or Cloudflare Pages
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+📅 Next Steps
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+ Add backend API connection tests
 
-## Deploy on Vercel
+ Build workflow builder screen
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+ Configure CI/CD via GitHub Actions
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+ Write tests for connections & UI flows
+
+© 2025 AI Buddy Inc. | All rights reserved.
+
