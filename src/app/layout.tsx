@@ -1,35 +1,19 @@
 "use client";
 
 import "./globals.css";
-import { useEffect, useState } from "react";
+import { ThemeProvider } from "@/components/ThemeProvider";
+import { ReactNode } from "react";
 
-export default function RootLayout({ children }) {
-  const [theme, setTheme] = useState("light");
+interface RootLayoutProps {
+  children: ReactNode;
+}
 
-  useEffect(() => {
-    // Load from localStorage or server
-    const saved = localStorage.getItem("theme") || "light";
-    setTheme(saved);
-
-    if (saved === "dark") {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, []);
-
-  // Sync with state changes from Settings
-  useEffect(() => {
-    if (theme === "dark") {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [theme]);
-
+export default function RootLayout({ children }: RootLayoutProps) {
   return (
-    <html lang="en">
-      <body className="antialiased">{children}</body>
+    <html lang="en" className="antialiased">
+      <body className="font-sans transition-colors duration-300">
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
     </html>
   );
 }
