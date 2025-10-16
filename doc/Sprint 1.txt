@@ -1,0 +1,215 @@
+🏁 Sprint 1 — Backend & Database Bootstrapping + Settings Page
+
+Objective: Add the backend foundation and database, create the /settings page, and implement a persistent light/dark theme toggle.
+
+1️⃣ Project Assumptions
+
+Project root: C:\projects\saas-app
+
+Tailwind v4 + Next.js 15+ front-end already running
+
+GitHub repo initialized
+
+VS Code configured as primary editor
+
+Node.js, npm installed
+
+2️⃣ Install Database & ORM
+2.1 PostgreSQL (local dev)
+
+Download and install PostgreSQL: https://www.postgresql.org/download/windows/
+
+During installation, create:
+
+User: postgres
+
+Password: postgres (or your secure choice)
+
+Open pgAdmin or psql CLI to confirm connection.
+
+2.2 Install Prisma ORM
+
+From project root:
+
+npm install prisma --save-dev
+npm install @prisma/client
+npx prisma init
+
+
+This creates:
+
+prisma/
+  └── schema.prisma
+.env
+
+
+.env stores your database URL:
+
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/saas_app?schema=public"
+
+2.3 Define Initial Schema
+
+Edit prisma/schema.prisma:
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  theme     String   @default("light") // "light" or "dark"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+2.4 Migrate Database
+npx prisma migrate dev --name init
+
+
+Confirms schema is applied locally
+
+Generates Prisma client for queries
+
+3️⃣ Backend Bootstrapping
+3.1 API Routes (Next.js App Router)
+
+Create folder structure:
+
+src/app/api/
+ ├── user/
+ │   └── route.js
+ └── theme/
+     └── route.js
+
+3.2 api/user/route.js (basic user fetch)
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+export async function GET(req) {
+  const users = await prisma.user.findMany();
+  return new Response(JSON.stringify(users), {
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+3.3 api/theme/route.js (update user theme)
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+export async function PATCH(req) {
+  const { userId, theme } = await req.json();
+
+  const updatedUser = await prisma.user.update({
+    where: { id: userId },
+    data: { theme },
+  });
+
+  return new Response(JSON.stringify(updatedUser), {
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+
+For simplicity, authentication is deferred to later sprints.
+
+4️⃣ Frontend — Settings Page
+
+Create folder & file:
+
+src/app/settings/page.jsx
+
+"use client";
+import { useState, useEffect } from "react";
+
+export default function SettingsPage() {
+  const [theme, setTheme] = useState("light");
+
+  // Load saved theme from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem("theme") || "light";
+    setTheme(saved);
+    document.documentElement.classList.toggle("dark", saved === "dark");
+  }, []);
+
+  const toggleTheme = () => {
+    const newTheme = theme === "light" ? "dark" : "light";
+    setTheme(newTheme);
+    localStorage.setItem("theme", newTheme);
+    document.documentElement.classList.toggle("dark", newTheme === "dark");
+
+    // Optional: send to backend
+    fetch("/api/theme", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: "1", theme: newTheme }),
+    });
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+      <h1 className="text-3xl font-bold mb-6">Settings</h1>
+      <button
+        onClick={toggleTheme}
+        className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+      >
+        Switch to {theme === "light" ? "Dark" : "Light"} Mode
+      </button>
+    </div>
+  );
+}
+
+
+Uses localStorage for immediate persistence
+
+Updates <html> class for Tailwind’s darkMode: "class"
+
+Sends PATCH request to backend API for DB persistence
+
+5️⃣ Test the Setup
+
+Run Tailwind watcher (still running from Sprint 0)
+
+npx tailwindcss -i ./src/app/globals.css -o ./src/app/output.css --watch
+
+
+In a new terminal, start Next.js:
+
+npm run dev
+
+
+Navigate to:
+
+http://localhost:3000/settings
+
+
+Click the toggle → page theme changes
+
+Inspect network tab → PATCH request sent to backend
+
+Optional: Check database via pgAdmin to confirm the user theme field updated
+
+6️⃣ Commit Sprint 1
+git add .
+git commit -m "Sprint 1 complete — backend & DB bootstrapped, settings page with theme toggle"
+git push
+git tag -a sprint-1 -m "Sprint 1: Backend + Settings Page"
+git push origin sprint-1
+
+✅ Sprint 1 Deliverable Checklist
+Item	Status
+Local PostgreSQL installed	✅
+Prisma ORM initialized	✅
+Database schema applied	✅
+Backend API routes /api/user & /api/theme	✅
+/settings page with light/dark toggle	✅
+Frontend updates reflect theme change immediately	✅
+DB persists theme preference	✅
+GitHub repo updated & tagged	✅

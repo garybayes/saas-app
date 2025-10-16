@@ -1,0 +1,666 @@
+Project: [Your SaaS Name] — Full-stack specification
+Goal: Production-ready architecture and implementation guidance for a modern multi-tenant SaaS with secure auth, user account/settings (with light/dark toggle), integrations, admin and billing, telemetry, and CI/CD.
+
+Table of contents
+
+Overview & assumptions
+
+Architecture diagram (text)
+
+Tech stack recommendation
+
+Data model / DB schema
+
+Backend: APIs, auth, services, deployment
+
+Frontend: app structure, pages, components, styling, accessibility, sample code (including light/dark toggle)
+
+Integrations (3rd-party services)
+
+Security & compliance checklist
+
+Testing strategy (unit / integration / e2e)
+
+CI/CD & deployment pipeline
+
+Monitoring, observability & SLOs
+
+Developer ergonomics & local dev
+
+Open decisions (items that would benefit from your input)
+
+Next steps / Practical Action Plan
+
+1) Overview & assumptions
+Core assumptions I used to create this spec
+
+Multi-tenant SaaS with per-organization accounts (teams). Users belong to organizations (orgs), with roles: owner/admin/member.
+
+Web-first application (desktop & mobile responsive). No native mobile apps yet.
+
+Real-time needs: optional (WebSockets) — included as an integration possibility.
+
+Scale target: MVP → hundreds of orgs, few thousand users; design for horizontal scaling.
+
+Primary persistence: Postgres. Optional Redis for cache and sessions.
+
+Authentication: JWT access tokens + refresh tokens. Optional OAuth sign-in (Google/SSO).
+
+Billing: Stripe.
+
+Hosting: Cloud (AWS/GCP) — I'll use AWS examples (ECS or EKS + RDS) but the design is cloud-agnostic.
+
+Frontend: React + TypeScript + Tailwind CSS, Vite or Next.js (I prefer Next.js for SSR/SSG & file routing).
+
+Backend: Node.js + TypeScript (NestJS or Express + routing-controllers). I provide RESTful API and GraphQL notes.
+
+Infrastructure IaC: Terraform.
+
+Observability: Prometheus + Grafana + Sentry + Papertrail/CloudWatch.
+
+If any assumption above is wrong for you, tell me which; I listed open decisions at the end so you can change them.
+
+2) Architecture (textual)
+
+Frontend (Next.js / React)
+
+Pages: Public marketing, Auth (Sign up / Sign in), Onboarding (guided), Dashboard (Command Center), Workflow Builder, Integrations, Account / Settings (with light/dark toggle), Admin Console.
+
+Static + dynamic: Next.js app with some SSR for SEO and client-side SPA for app areas.
+
+Backend (API Layer)
+
+REST API (v1) served by Node.js/TypeScript (NestJS recommended) behind API Gateway.
+
+Auth service (JWT + refresh + sessions store in Redis optional).
+
+Worker queue (BullMQ / Sidekiq-like) for background jobs (email, billing webhooks, external API retries).
+
+Microservices optional: start monolith modularized; split later.
+
+Persistence
+
+Postgres (primary relational).
+
+Redis (caching, session store, rate limiting).
+
+S3-compatible object storage for files.
+
+Other
+
+Stripe for billing.
+
+SSO (Okta / Azure AD) optional for enterprise.
+
+Webhooks & integrations: deliverable with idempotency keys.
+
+CI/CD: GitHub Actions.
+
+3) Tech stack (recommended)
+
+Frontend: Next.js + React + TypeScript + Tailwind CSS + Headless UI + react-query (TanStack Query) + Zustand (or Jotai) for local state.
+
+Backend: Node.js + TypeScript + NestJS (or Express + TypeORM/Prisma). I recommend Prisma as the ORM.
+
+DB: PostgreSQL (AWS RDS / Google Cloud SQL).
+
+Cache/Queue: Redis + BullMQ (jobs).
+
+Auth: OAuth + JWT (access tokens short-lived, refresh tokens in httpOnly secure cookies).
+
+Testing: Jest + React Testing Library (frontend); Jest + Supertest (backend); Playwright or Cypress (E2E).
+
+Infra: Terraform + AWS (ECS Fargate or EKS) + RDS + ElastiCache (Redis). CI/CD: GitHub Actions.
+
+Observability: Sentry, Prometheus, Grafana, Loki (logs).
+
+Secret mgmt: AWS Secrets Manager or HashiCorp Vault.
+
+4) Data model (core tables)
+
+Using Postgres. Below are the core tables and important fields (simplified).
+
+-- organizations
+CREATE TABLE organizations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL,
+  billing_id TEXT, -- stripe customer id
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- users
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT UNIQUE NOT NULL,
+  name TEXT,
+  password_hash TEXT, -- bcrypt
+  is_email_verified BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- memberships (join user <-> org)
+CREATE TABLE memberships (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+  role TEXT NOT NULL, -- owner | admin | member
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- settings (per user or per org)
+CREATE TABLE user_settings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  preferences JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- audit log
+CREATE TABLE audit_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID REFERENCES organizations(id),
+  user_id UUID,
+  action TEXT,
+  metadata JSONB,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+
+Preference structure for light/dark toggle (in user_settings.preferences)
+
+{
+  "theme": {
+    "mode": "system" | "light" | "dark", 
+    "prefersReducedMotion": false
+  }
+}
+
+5) Backend: REST API (design, examples)
+
+Base path: POST /api/v1/... or GET /api/v1/.... Authentication via Authorization header Bearer <access_token> and refresh via secure cookie /api/v1/auth/refresh.
+
+Auth endpoints
+
+POST /api/v1/auth/signup — body {email,name,password,orgName?}
+
+POST /api/v1/auth/login — body {email,password} -> returns access token + sets refresh cookie
+
+POST /api/v1/auth/oauth/:provider — for social login
+
+POST /api/v1/auth/refresh — exchange refresh cookie for a new access token
+
+POST /api/v1/auth/logout — revoke refresh token
+
+User & org
+
+GET /api/v1/me — current user (profiles + settings)
+
+PATCH /api/v1/me — update profile
+
+GET /api/v1/organizations/:id — org info
+
+POST /api/v1/organizations — create org
+
+GET /api/v1/organizations/:id/members — list members
+
+POST /api/v1/organizations/:id/members — invite member (send email)
+
+Settings (including light/dark)
+
+GET /api/v1/me/settings
+
+PATCH /api/v1/me/settings — body: { preferences: { theme: { mode: "dark" }}}
+
+Example handler (pseudo-code, TypeScript/NestJS)
+// PATCH /api/v1/me/settings
+app.patch('/api/v1/me/settings', authMiddleware, async (req, res) => {
+  const userId = req.user.id;
+  const { preferences } = req.body;
+  const updated = await db.userSettings.upsert({
+    where: { user_id: userId },
+    update: { preferences },
+    create: { user_id: userId, preferences }
+  });
+  res.json({ data: updated });
+});
+
+Background jobs
+
+Worker queue for emails, webhook retries, heavy tasks. Use BullMQ with Redis.
+
+Rate limiting & security
+
+Per-IP and per-user rate limits using Redis.
+
+Use idempotency keys on POSTs to external APIs.
+
+Webhooks & integrations
+
+POST /api/v1/webhooks/stripe — process charge events (verify via signature)
+
+POST /api/v1/webhooks/external — user-defined webhook endpoints
+
+6) Frontend: structure, pages, components, and code
+App structure (Next.js + TypeScript)
+/src
+  /pages
+    /_app.tsx
+    /index.tsx             -- marketing
+    /auth
+      login.tsx
+      signup.tsx
+    /app
+      /dashboard
+      /workflow
+      /integrations
+      /settings
+        index.tsx          -- Account & Settings
+  /components
+    /ui
+      Button.tsx
+      Toggle.tsx
+      Modal.tsx
+      ThemeProvider.tsx
+    /layout
+      TopNav.tsx
+      SideNav.tsx
+  /lib
+    api.ts                  -- fetch wrappers (react-query)
+    auth.ts                 -- token helpers
+  /styles
+    globals.css
+
+Styling & theming
+
+Tailwind CSS with JIT. Configure tailwind.config.js to support dark mode via class strategy (not media), so we can manually toggle. Example:
+
+// tailwind.config.js
+module.exports = {
+  darkMode: 'class',
+  content: ['./src/**/*.{tsx,ts,jsx,js}'],
+  theme: { extend: {} },
+  plugins: []
+}
+
+
+Global CSS has variables and supports CSS custom properties for easy theme overrides.
+
+Theme Provider (ThemeProvider.tsx) — manages light/dark toggle, persists to API/local storage
+
+Key functionality:
+
+Reads user setting from API /api/v1/me/settings on load.
+
+Prefers system, light, or dark.
+
+Saves change to API and local storage for instant effect.
+
+Adds class="dark" to <html> or <body> for Tailwind to apply.
+
+Minimal ThemeProvider (React + TypeScript)
+// src/components/ui/ThemeProvider.tsx
+import React, { useEffect, useState } from 'react';
+
+type Mode = 'system' | 'light' | 'dark';
+
+export const ThemeContext = React.createContext({
+  mode: 'system' as Mode,
+  setMode: (m: Mode) => {}
+});
+
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [mode, setModeState] = useState<Mode>(() => {
+    if (typeof window === 'undefined') return 'system';
+    const saved = window.localStorage.getItem('theme.mode') as Mode | null;
+    return saved ?? 'system';
+  });
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    const apply = (m: Mode) => {
+      if (m === 'system') {
+        const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        root.classList.toggle('dark', isDark);
+      } else {
+        root.classList.toggle('dark', m === 'dark');
+      }
+    };
+    apply(mode);
+    window.localStorage.setItem('theme.mode', mode);
+    setModeState(mode);
+    // Optionally: persist to server
+    // api.patch('/api/v1/me/settings', { preferences: { theme: { mode } }});
+  }, [mode]);
+
+  return (
+    <ThemeContext.Provider value={{ mode, setMode: setModeState }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+}
+
+Light/Dark Toggle UI (Settings page)
+
+Provide three-way toggle: System | Light | Dark.
+
+Accessible switch with icons and text.
+
+Save immediately to backend and show optimistic UI.
+
+Settings page snippet (/app/settings/index.tsx)
+import React, { useContext, useEffect, useState } from 'react';
+import { ThemeContext } from '../../components/ui/ThemeProvider';
+import api from '../../lib/api';
+
+export default function SettingsPage() {
+  const { mode, setMode } = useContext(ThemeContext);
+  const [isSaving, setSaving] = useState(false);
+
+  async function handleChange(newMode: 'system'|'light'|'dark') {
+    setMode(newMode);
+    setSaving(true);
+    try {
+      await api.patch('/me/settings', { preferences: { theme: { mode: newMode } }});
+    } catch (err) {
+      console.error(err);
+      // optionally rollback or show toast
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <div className="p-6 max-w-3xl">
+      <h1 className="text-2xl font-semibold mb-4">Account & Settings</h1>
+      <section className="bg-white dark:bg-slate-800 p-4 rounded-lg shadow">
+        <h2 className="text-lg mb-2">Appearance</h2>
+        <div className="flex items-center gap-3">
+          {(['system','light','dark'] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => handleChange(m)}
+              className={`px-3 py-2 rounded ${mode === m ? 'ring-2 ring-offset-2' : 'opacity-80'}`}
+              aria-pressed={mode === m}
+            >
+              {m}
+            </button>
+          ))}
+          {isSaving && <span className="ml-2 text-sm">Saving...</span>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+Toggle component (reusable)
+
+Build a Toggle that is keyboard accessible and works with ARIA.
+
+// src/components/ui/Toggle.tsx
+export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v:boolean)=>void; label?: string }) {
+  return (
+    <button
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`inline-flex items-center p-1 rounded-full ${checked ? 'bg-gray-700' : 'bg-gray-200'}`}
+    >
+      <span className={`h-5 w-5 rounded-full bg-white transform ${checked ? 'translate-x-4' : 'translate-x-0'}`} />
+    </button>
+  )
+}
+
+Accessibility notes
+
+Use semantic HTML, aria-* attributes as needed.
+
+Ensure color contrast for dark mode meets WCAG AA.
+
+Respect prefers-reduced-motion.
+
+7) Integrations & 3rd-party services
+
+Authentication: Google, GitHub, SAML SSO (Okta / Azure AD) for enterprise.
+
+Billing: Stripe (Subscriptions + webhooks).
+
+Email: SendGrid / Postmark / SES.
+
+Jobs: BullMQ (Redis).
+
+Object Storage: AWS S3 (presigned URLs).
+
+Monitoring: Sentry for errors, Prometheus + Grafana for metrics.
+
+Logging: Loki / CloudWatch.
+
+Feature Flags: LaunchDarkly / Unleash (optional).
+
+8) Security & compliance checklist
+
+Store passwords with bcrypt/argon2, never plaintext.
+
+Use HTTPS everywhere. HSTS.
+
+Secure cookies for refresh tokens (HttpOnly, Secure, SameSite=Strict/Lax as appropriate).
+
+CSRF protection for stateful endpoints.
+
+Rate limit and IP block suspicious traffic.
+
+Audit logging for admin actions.
+
+Data retention & GDPR compliance: ability to export/delete user data.
+
+Secrets encryption (KMS / Vault).
+
+Use CSP headers & sanitize any HTML inputs.
+
+9) Testing strategy
+
+Unit tests: Jest for backend services & frontend logic. Keep >80% coverage for critical modules.
+
+Integration tests: Supertest for API routes (DB in test container). Use testfixtures to reset DB state.
+
+E2E tests: Playwright test flows: signup, invite member, settings (toggle), create workflow, billing checkout.
+
+Accessibility tests: axe-core in CI for core pages.
+
+Load tests: k6 or Artillery for API endpoints and typical flows.
+
+10) CI/CD & deployment
+
+Use GitHub Actions:
+
+pull_request workflow: run linters, unit tests, typecheck, and small integration tests in containers.
+
+main branch: build, run e2e tests against staging, build Docker images, push to registry, run Terraform plan/apply for infra changes, deploy to staging -> smoke tests -> deploy to production.
+
+Deployment targets:
+
+Docker images to AWS ECR.
+
+ECS Fargate or EKS cluster.
+
+RDS for Postgres.
+
+ElastiCache Redis.
+
+S3 for assets and CloudFront for CDN.
+
+11) Monitoring & observability
+
+Errors: Sentry — configure env tagging and release tracking.
+
+Metrics: Prometheus metrics (response times, requests per endpoint, job queue length). Grafana dashboards for:
+
+API latency P50/P90/P99
+
+Error rate
+
+DB connections
+
+Queue backlog
+
+Logs: Structured JSON logs shipped to Loki/CloudWatch.
+
+Uptime & alerts: PagerDuty for on-call. Alerts for error rate > X% and queue backlog > threshold.
+
+Suggested SLOs (example):
+
+API availability: 99.9% monthly
+
+API P95 latency < 500ms
+
+Job queue processing latency < 60s
+
+12) Developer ergonomics & local dev
+
+Local dev stack with Docker Compose: Postgres, Redis, local S3 (minio), and dev server for backend and frontend.
+
+Seed data script for test orgs.
+
+Makefile or npm scripts to run lint/test/dev.
+
+Use dotenv for environment configs; keep sample .env.example.
+
+13) Open decisions (where your direction will change implementation)
+
+I did not ask clarifying questions (to avoid blocking progress). Instead, here are the decisions I assumed — pick your choices or tell me which to change:
+
+Frontend framework: I chose Next.js. If you prefer a pure SPA with Vite + React Router, we should swap SSR/SSG flows and hosting (Netlify/Vercel vs S3 + CloudFront).
+
+Backend framework: I suggested NestJS + Prisma. If you want Python (FastAPI) or Go, we can rewrite API contracts accordingly.
+
+Auth model: JWT + refresh tokens in cookies. Alternatively, use server-side sessions (Redis-backed) — simpler to revoke tokens.
+
+Theme persistence: Per-user setting persisted in user_settings.preferences. You may want org-level theme or only client-side; current design supports both.
+
+Billing provider: Stripe. If you need EU-specific invoicing or other gateway, we can adapt.
+
+Multi-tenancy model: Row-level tenancy in Postgres (organization_id column). For stricter isolation, use separate DB per tenant.
+
+Real-time features: Socket.IO vs WebSockets via server (or GraphQL subscriptions). I left real-time optional.
+
+Hosting: I used AWS as default. If you prefer GCP/Azure or Vercel for frontend, adjust infra steps.
+
+If you want, I can produce the following next:
+
+Full Next.js project skeleton (files + example pages) wired to API mocks.
+
+Complete NestJS + Prisma backend starter with DB migrations and tests.
+
+Terraform module for infra (RDS, ECS, Redis).
+
+14) Practical Action Plan (immediate steps)
+
+Short, prioritized plan to go from 0 → MVP:
+
+Sprint 0 (planning, infra): 1 week
+
+Finalize decisions in section 13.
+
+Create repository templates and branch strategy.
+
+Setup CI skeleton (lint + tests).
+
+Sprint 1 (auth + onboarding): 2 weeks
+
+Implement backend auth (signup/login/refresh/logout).
+
+Implement basic DB models & migrations (organizations, users, memberships, user_settings).
+
+Frontend auth pages + ThemeProvider + Settings page with light/dark toggle (local save + API patch).
+
+Sprint 2 (core app): 2–3 weeks
+
+Dashboard, integrations, invite flow, worker queue for background jobs.
+
+Stripe billing integration (subscribe/unsubscribe + webhooks).
+
+Sprint 3 (QA & hardening): 1–2 weeks
+
+E2E tests, load test, logging, monitoring dashboards, Sentry.
+
+Security review: pen-test checklist + secrets rotation.
+
+Deliverable milestones
+
+End of Sprint 1: Basic app with settings + light/dark toggle, auth, and API endpoints.
+
+End of Sprint 2: MVP feature-complete with billing and integrations.
+
+End of Sprint 3: Production-ready with observability and basic SLOs.
+
+Appendix: Minimal end-to-end example — Theme toggle (full)
+1) Backend route (Express + Prisma example)
+// PATCH /api/v1/me/settings
+import express from 'express';
+const router = express.Router();
+
+router.patch('/me/settings', authMiddleware, async (req, res) => {
+  const userId = req.user.id;
+  const { preferences } = req.body; // validate shape
+  const upsert = await prisma.userSettings.upsert({
+    where: { user_id: userId },
+    create: { user_id: userId, preferences },
+    update: { preferences }
+  });
+  res.json({ success: true, data: upsert });
+});
+
+2) Frontend ThemeProvider (improved)
+// ThemeProvider.tsx (improved: persists to server)
+useEffect(() => {
+  // initial load: fetch settings
+  (async () => {
+    try {
+      const res = await api.get('/me/settings');
+      const serverMode = res.data?.preferences?.theme?.mode as Mode | undefined;
+      if (serverMode) setModeState(serverMode);
+    } catch (err) { /* ignore - ok to use local */ }
+  })();
+}, []);
+
+const setMode = async (m: Mode) => {
+  setModeState(m);
+  window.localStorage.setItem('theme.mode', m);
+  try {
+    await api.patch('/me/settings', { preferences: { theme: { mode: m } }});
+  } catch (err) {
+    console.error('Could not persist theme', err);
+  }
+};
+
+Brief Reasoning Summary (no chain-of-thought)
+
+I designed this spec to be pragmatic for an MVP that’s production-ready: Next.js for frontend (good for marketing + app in one), Prisma/Postgres for reliable relational data, Redis for sessions and job queues, Stripe for billing. The light/dark toggle is implemented via Tailwind's dark class, with a ThemeProvider that keeps local, system, and server-synced state. I focused on modular, testable code and infrastructure that scales horizontally.
+
+Alternatives
+
+Use Vite + React if you prefer a purely client SPA (simpler hosting, but loses SSR/SEO).
+
+Use FastAPI (Python) for backend if your team prefers Python; similar API contracts work.
+
+For auth revocation simplicity, use server-side sessions instead of JWTs.
+
+For multi-tenant DB isolation, use separate DB instances per customer (higher security, more cost).
+
+Open questions / decisions (I did not block progress — listed for your pick)
+
+(Answering any subset is fine; I used defaults above.)
+
+Preferred frontend framework: Next.js (default) or Vite + React?
+
+Backend language/framework preference: Node/NestJS (default), Python/FastAPI, or Go?
+
+Auth model: JWT + refresh cookies (default) or server sessions? SSO required?
+
+Billing: Stripe or another gateway?
+
+Tenant isolation: Row-level (default) or DB-per-tenant?
+
+Hosting: AWS (ECS/EKS) or prefer Vercel + PlanetScale or GCP/Azure?
+
+Must-have integrations (list the 3 most important): e.g., Google OAuth, Slack, Salesforce.

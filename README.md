@@ -1,4 +1,4 @@
-# 🧠 AI Buddy – SaaS Platform
+# 🧠 Mind Forge – SaaS Platform
 
 A modular **AI workflow automation platform** built with **Next.js + TailwindCSS**.  
 Connect your favorite tools, automate tasks, and build no-code workflows in minutes.
@@ -76,5 +76,5 @@ Netlify or Cloudflare Pages
 
  Write tests for connections & UI flows
 
-© 2025 AI Buddy Inc. | All rights reserved.
+© 2025 Mind Forge Inc. | All rights reserved.
 

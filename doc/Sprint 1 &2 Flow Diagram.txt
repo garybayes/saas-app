@@ -1,0 +1,56 @@
+┌──────────────────────────────┐
+│ User opens Settings Page      │
+│ (/settings)                  │
+└───────────────┬──────────────┘
+                │
+                ▼
+┌──────────────────────────────┐
+│ Settings Page UI (page.jsx)  │
+│ - Theme toggle               │
+│ - Profile form (name, email, │
+│   avatar)                     │
+│ - Local state for fields     │
+└───────────────┬──────────────┘
+                │
+                ▼
+┌──────────────────────────────┐
+│ User actions                 │
+│ - Click theme toggle          │
+│ - Edit profile fields         │
+│                              │
+│ Updates local state + UI      │
+│ Updates localStorage theme    │
+└───────────────┬──────────────┘
+                │
+                ▼
+┌──────────────────────────────┐
+│ API Calls                     │
+│                              │
+│ 1️⃣ PATCH /api/theme           │
+│    - Update theme in DB       │
+│                              │
+│ 2️⃣ PATCH /api/user            │
+│    - Update profile fields    │
+└───────────────┬──────────────┘
+                │
+                ▼
+┌──────────────────────────────┐
+│ Database (User Table)        │
+│ - Stores user-001            │
+│   - theme                     │
+│   - name                      │
+│   - email                     │
+│   - avatar                    │
+└───────────────┬──────────────┘
+                │
+                ▼
+┌──────────────────────────────┐
+│ Layout (layout.tsx)          │
+│ - Reads localStorage theme    │
+│ - Applies `dark` class        │
+│   to <html> element           │
+│ - Applies Tailwind dark:     │
+│   bg/text styles             │
+│ - Future: fetch user theme   │
+│   from API                     │
+└──────────────────────────────┘
