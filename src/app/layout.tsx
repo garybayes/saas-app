@@ -1,17 +1,11 @@
-"use client";
-
 import "./globals.css";
-import { ThemeProvider } from "@/components/ThemeProvider";
 import { ReactNode } from "react";
+import { ThemeProvider } from "@/components/ThemeProvider";
 
-interface RootLayoutProps {
-  children: ReactNode;
-}
-
-export default function RootLayout({ children }: RootLayoutProps) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className="antialiased">
-      <body className="font-sans transition-colors duration-300">
+    <html lang="en" suppressHydrationWarning>
+      <body>
         <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>

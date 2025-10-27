@@ -1,0 +1,200 @@
+Sprint 2: App Connections & Core AI Tool Integrations
+
+Objective: Enable the app to connect user accounts to core AI tools (ChatGPT, Canva, Zapier, Notion AI, Midjourney, Otter.ai) and store credentials safely in the database.
+
+1️⃣ Database Updates
+
+Goal: Add tables for storing user app connections.
+
+Steps:
+
+Edit prisma/schema.prisma:
+
+model User {
+  id        String   @id
+  email     String
+  theme     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  connections Connection[]
+}
+
+model Connection {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  appName   String
+  apiKey    String?  // optional for OAuth
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+
+Run Prisma migrations:
+
+npx prisma migrate dev --name add_connections
+npx prisma generate
+
+
+Verify new tables in your database (User already exists).
+
+2️⃣ Backend API Routes
+
+Goal: CRUD routes for user app connections.
+
+Files:
+
+src/app/api/connections/route.ts
+
+Structure:
+
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+
+interface ConnectionRequestBody {
+  userId: string;
+  appName: string;
+  apiKey?: string;
+}
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const userId = searchParams.get("userId");
+  if (!userId) return NextResponse.json({ error: "Missing userId" }, { status: 400 });
+
+  const connections = await prisma.connection.findMany({ where: { userId } });
+  return NextResponse.json(connections);
+}
+
+export async function POST(req: NextRequest) {
+  const body: ConnectionRequestBody = await req.json();
+  const connection = await prisma.connection.create({ data: body });
+  return NextResponse.json(connection);
+}
+
+export async function DELETE(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "Missing connection id" }, { status: 400 });
+
+  await prisma.connection.delete({ where: { id } });
+  return NextResponse.json({ success: true });
+}
+
+3️⃣ Frontend: Connections Page
+
+Goal: Allow users to add, view, and delete their tool connections.
+
+File: src/app/connections/page.tsx
+
+Steps:
+
+Create a page listing existing connections.
+
+Add a form to add a new connection (dropdown for appName + input for API key).
+
+Fetch connections from GET /api/connections?userId=....
+
+Post new connections to POST /api/connections.
+
+Delete via DELETE /api/connections?id=....
+
+Example snippet (simplified):
+
+"use client";
+import { useEffect, useState } from "react";
+
+interface Connection {
+  id: string;
+  appName: string;
+  apiKey?: string;
+}
+
+export default function ConnectionsPage() {
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const userId = "user-001"; // temporary; replace with logged-in user ID
+
+  const fetchConnections = async () => {
+    const res = await fetch(`/api/connections?userId=${userId}`);
+    const data = await res.json();
+    setConnections(data);
+  };
+
+  const addConnection = async (appName: string, apiKey?: string) => {
+    await fetch("/api/connections", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, appName, apiKey }),
+    });
+    fetchConnections();
+  };
+
+  const deleteConnection = async (id: string) => {
+    await fetch(`/api/connections?id=${id}`, { method: "DELETE" });
+    fetchConnections();
+  };
+
+  useEffect(() => { fetchConnections(); }, []);
+
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl mb-4">My App Connections</h1>
+      {/* Form for adding a connection */}
+      {/* List of connections */}
+    </div>
+  );
+}
+
+4️⃣ Tailwind Styling
+
+Keep dark/light mode applied via ThemeProvider.
+
+Buttons and inputs should respond to Tailwind’s dark: classes.
+
+Example button:
+
+<button className="px-4 py-2 bg-gray-100 dark:bg-gray-800 text-black dark:text-white rounded">
+  Add Connection
+</button>
+
+5️⃣ Security Considerations
+
+Never log API keys in console.
+
+Store sensitive info encrypted if needed (optional for now).
+
+6️⃣ Frontend-Backend Integration Test
+
+Start app locally:
+
+npm run dev
+
+
+Go to /connections.
+
+Add a connection, check database, verify listing.
+
+Delete a connection, verify removal.
+
+7️⃣ Git Steps
+
+Create branch:
+
+git checkout -b feature/connections
+
+
+Add, commit, and push after testing:
+
+git add .
+git commit -m "Sprint 2: connections page & API"
+git push origin feature/connections
+
+
+Merge to main once approved.
+
+Notes / Next Steps
+
+Sprint 3 will focus on drag-and-drop workflow builder.
+
+Sprint 2 ensures user credentials are saved and retrievable before building automation workflows.
