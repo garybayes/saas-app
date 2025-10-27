@@ -1,54 +1,72 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
-
-type Theme = "light" | "dark";
+import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 
 interface ThemeContextType {
-  theme: Theme;
+  theme: "light" | "dark";
   toggleTheme: () => void;
 }
 
-const ThemeContext = createContext<ThemeContextType>({
-  theme: "light",
-  toggleTheme: () => {},
-});
+const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-export const useTheme = () => useContext(ThemeContext);
+export const ThemeProvider = ({ children }: { children: ReactNode }) => {
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const userId = "user-001";
 
-export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [theme, setTheme] = useState<Theme>("light");
+  /** 🧩 Apply Tailwind theme classes to <html> + persist */
+  const applyTheme = (newTheme: "light" | "dark") => {
+    const root = document.documentElement;
+    root.classList.remove("light", "dark");
+    root.classList.add(newTheme);
 
-  // Load initial theme from DB on mount
+    // Tailwind uses `.dark` to trigger dark mode variants
+    root.classList.toggle("dark", newTheme === "dark");
+
+    localStorage.setItem("theme", newTheme);
+  };
+
+  /** 🔄 Load user theme from DB or localStorage */
   useEffect(() => {
-    const fetchTheme = async () => {
+    const loadTheme = async () => {
+      const local = localStorage.getItem("theme") as "light" | "dark" | null;
+      if (local) {
+        setTheme(local);
+        applyTheme(local);
+        return;
+      }
+
       try {
-        const res = await fetch("/api/theme?userId=user-001");
-        const data = await res.json();
-        const dbTheme: Theme = data.theme === "dark" ? "dark" : "light";
-        setTheme(dbTheme);
-        document.documentElement.classList.toggle("dark", dbTheme === "dark");
-      } catch (err) {
-        console.error("Failed to fetch theme:", err);
+        const res = await fetch(`/api/settings/theme?userId=${userId}`);
+        if (res.ok) {
+          const data = await res.json();
+          const savedTheme = data?.theme || "light";
+          setTheme(savedTheme);
+          applyTheme(savedTheme);
+        } else {
+          applyTheme("light");
+        }
+      } catch {
+        applyTheme("light");
       }
     };
-    fetchTheme();
+
+    loadTheme();
   }, []);
 
-  // Toggle theme locally and update DB
+  /** 🌗 Toggle theme + persist to DB */
   const toggleTheme = async () => {
-    const newTheme: Theme = theme === "light" ? "dark" : "light";
+    const newTheme = theme === "light" ? "dark" : "light";
     setTheme(newTheme);
-    document.documentElement.classList.toggle("dark", newTheme === "dark");
+    applyTheme(newTheme);
 
     try {
-      await fetch("/api/theme", {
+      await fetch("/api/settings/theme", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: "user-001", theme: newTheme }),
+        body: JSON.stringify({ userId, theme: newTheme }),
       });
     } catch (err) {
-      console.error("Failed to update theme:", err);
+      console.error("Theme update failed:", err);
     }
   };
 
@@ -57,4 +75,10 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       {children}
     </ThemeContext.Provider>
   );
+};
+
+export const useTheme = () => {
+  const ctx = useContext(ThemeContext);
+  if (!ctx) throw new Error("useTheme must be used inside ThemeProvider");
+  return ctx;
 };
