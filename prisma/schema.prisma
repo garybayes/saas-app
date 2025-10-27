@@ -11,18 +11,41 @@ datasource db {
 model User {
   id          String       @id @default(cuid())
   email       String       @unique
+  password    String?
   theme       String       @default("light")
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
-  connections Connection[]
+  accounts    Account[]
+  sessions    Session[]
+  connections Connection[] // ✅ relation restored
 }
 
 model Connection {
   id        String   @id @default(cuid())
   userId    String
   appName   String
-  apiKey    String?
+  apiKey    String
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id])
+  updatedAt DateTime @updatedAt // ✅ restored
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  access_token      String?
+  token_type        String?
+  scope             String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

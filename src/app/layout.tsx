@@ -1,12 +1,15 @@
+"use client";
+import { SessionProvider } from "next-auth/react";
 import "./globals.css";
-import { ReactNode } from "react";
 import { ThemeProvider } from "@/components/ThemeProvider";
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en">
       <body>
-        <ThemeProvider>{children}</ThemeProvider>
+        <SessionProvider>
+          <ThemeProvider>{children}</ThemeProvider>
+        </SessionProvider>
       </body>
     </html>
   );
