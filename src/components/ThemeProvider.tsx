@@ -1,84 +1,61 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 
-interface ThemeContextType {
+type ThemeContextType = {
   theme: "light" | "dark";
-  toggleTheme: () => void;
-}
+  setTheme: (t: "light" | "dark") => void;
+};
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-export const ThemeProvider = ({ children }: { children: ReactNode }) => {
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const { data: session } = useSession();
   const [theme, setTheme] = useState<"light" | "dark">("light");
-  const userId = "user-001";
 
-  /** 🧩 Apply Tailwind theme classes to <html> + persist */
-  const applyTheme = (newTheme: "light" | "dark") => {
-    const root = document.documentElement;
-    root.classList.remove("light", "dark");
-    root.classList.add(newTheme);
+  // ✅ 1. Load from localStorage or system preference
+useEffect(() => {
+  const stored = localStorage.getItem("theme") as "light" | "dark" | null;
+  if (stored) {
+    setTheme(stored);
+  }
+  // ❌ No fallback to system preference — we only trust stored or DB theme
+}, []);
 
-    // Tailwind uses `.dark` to trigger dark mode variants
-    root.classList.toggle("dark", newTheme === "dark");
-
-    localStorage.setItem("theme", newTheme);
-  };
-
-  /** 🔄 Load user theme from DB or localStorage */
+  // ✅ 2. Override with DB value from authenticated user (if present)
   useEffect(() => {
-    const loadTheme = async () => {
-      const local = localStorage.getItem("theme") as "light" | "dark" | null;
-      if (local) {
-        setTheme(local);
-        applyTheme(local);
-        return;
-      }
-
-      try {
-        const res = await fetch(`/api/settings/theme?userId=${userId}`);
-        if (res.ok) {
-          const data = await res.json();
-          const savedTheme = data?.theme || "light";
-          setTheme(savedTheme);
-          applyTheme(savedTheme);
-        } else {
-          applyTheme("light");
-        }
-      } catch {
-        applyTheme("light");
-      }
-    };
-
-    loadTheme();
-  }, []);
-
-  /** 🌗 Toggle theme + persist to DB */
-  const toggleTheme = async () => {
-    const newTheme = theme === "light" ? "dark" : "light";
-    setTheme(newTheme);
-    applyTheme(newTheme);
-
-    try {
-      await fetch("/api/settings/theme", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, theme: newTheme }),
-      });
-    } catch (err) {
-      console.error("Theme update failed:", err);
+    if (session?.user?.theme && (session.user.theme === "light" || session.user.theme === "dark")) {
+      setTheme(session.user.theme);
     }
-  };
+  }, [session]);
 
+  // ✅ 3. Apply to <html> and persist
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("dark", theme === "dark");
+    root.setAttribute("data-theme", theme);
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  // ✅ 4. Provide context for components
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
-      {children}
+    <ThemeContext.Provider value={{ theme, setTheme }}>
+      <div
+        className={`min-h-screen transition-colors duration-300 ${
+          theme === "dark"
+            ? "bg-gray-900 text-gray-100"
+            : "bg-white text-gray-900"
+        }`}
+      >
+        {children}
+      </div>
     </ThemeContext.Provider>
   );
-};
+}
 
 export const useTheme = () => {
   const ctx = useContext(ThemeContext);
-  if (!ctx) throw new Error("useTheme must be used inside ThemeProvider");
+  if (!ctx) throw new Error("useTheme must be used within ThemeProvider");
   return ctx;
 };

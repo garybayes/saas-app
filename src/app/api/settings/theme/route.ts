@@ -1,35 +1,54 @@
+// src/app/api/settings/theme/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import { PrismaClient } from "@prisma/client";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../../auth/[...nextauth]/route";
 
+const prisma = new PrismaClient();
+
+// ✅ GET theme
 export async function GET(req: NextRequest) {
-  const userId = req.nextUrl.searchParams.get("userId");
-  if (!userId)
-    return NextResponse.json({ error: "Missing userId" }, { status: 400 });
-
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { theme: true },
-  });
-
-  return NextResponse.json(user || { theme: "light" });
-}
-
-export async function POST(req: NextRequest) {
   try {
-    const { userId, theme } = await req.json();
+    const session = await getServerSession(authOptions);
 
-    const updatedUser = await prisma.user.upsert({
-      where: { id: userId },
-      update: { theme },
-      create: { id: userId, theme, email: `${userId}@example.com` },
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { id: true, email: true, theme: true },
     });
 
-    return NextResponse.json(updatedUser);
+    return NextResponse.json(user || {});
   } catch (error) {
-    console.error("Error updating theme:", error);
-    return NextResponse.json(
-      { error: "Failed to update theme" },
-      { status: 500 }
-    );
+    console.error("GET /api/settings/theme error:", error);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  }
+}
+
+// ✅ POST theme update
+export async function POST(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { theme } = await req.json();
+    if (!["light", "dark"].includes(theme)) {
+      return NextResponse.json({ error: "Invalid theme" }, { status: 400 });
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: session.user.id },
+      data: { theme, updatedAt: new Date() },
+    });
+
+    return NextResponse.json(updated);
+  } catch (error) {
+    console.error("POST /api/settings/theme error:", error);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
