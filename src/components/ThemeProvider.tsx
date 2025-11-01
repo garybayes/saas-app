@@ -1,16 +1,17 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
 
 interface ThemeContextType {
   theme: "light" | "dark";
   toggleTheme: () => void;
+  setTheme: (theme: "light" | "dark") => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [theme, setThemeState] = useState<"light" | "dark">("light");
   const userId = "user-001";
 
   /** 🧩 Apply Tailwind theme classes to <html> + persist */
@@ -25,13 +26,17 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     localStorage.setItem("theme", newTheme);
   };
 
+  const setTheme = useCallback((newTheme: "light" | "dark") => {
+    setThemeState(newTheme);
+    applyTheme(newTheme);
+  }, []);
+
   /** 🔄 Load user theme from DB or localStorage */
   useEffect(() => {
     const loadTheme = async () => {
       const local = localStorage.getItem("theme") as "light" | "dark" | null;
       if (local) {
         setTheme(local);
-        applyTheme(local);
         return;
       }
 
@@ -41,23 +46,21 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
           const data = await res.json();
           const savedTheme = data?.theme || "light";
           setTheme(savedTheme);
-          applyTheme(savedTheme);
         } else {
-          applyTheme("light");
+          setTheme("light");
         }
       } catch {
-        applyTheme("light");
+        setTheme("light");
       }
     };
 
     loadTheme();
-  }, []);
+  }, [setTheme]);
 
   /** 🌗 Toggle theme + persist to DB */
   const toggleTheme = async () => {
     const newTheme = theme === "light" ? "dark" : "light";
     setTheme(newTheme);
-    applyTheme(newTheme);
 
     try {
       await fetch("/api/settings/theme", {
@@ -71,7 +74,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>
       {children}
     </ThemeContext.Provider>
   );
