@@ -10,7 +10,7 @@ import { useState } from "react";
 export default function NavBar() {
   const { data: session } = useSession();
   const pathname = usePathname();
-  const { theme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   if (!session?.user) return null;
@@ -19,6 +19,11 @@ export default function NavBar() {
     { href: "/connections", label: "Connections" },
     { href: "/settings", label: "Settings" },
   ];
+
+  const handleLogout = () => {
+    setTheme("light");
+    signOut({ callbackUrl: "/login" });
+  };
 
   return (
     <nav className="bg-card border-b border-border text-foreground flex justify-between items-center px-6 py-3 shadow-sm relative z-10">
@@ -49,7 +54,7 @@ export default function NavBar() {
           {session.user.email} · {theme}
         </div>
         <button
-          onClick={() => signOut({ callbackUrl: "/login" })}
+          onClick={handleLogout}
           className="btn-muted text-sm"
         >
           Logout
@@ -71,7 +76,7 @@ export default function NavBar() {
             </Link>
           ))}
           <button
-            onClick={() => signOut({ callbackUrl: "/login" })}
+            onClick={handleLogout}
             className="mt-3 btn-muted w-full text-left"
           >
             Logout
