@@ -1,134 +1,147 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import LayoutContainer from "../../components/LayoutContainer";
+import { useEffect, useState, useCallback } from "react";
+import { useSession } from "next-auth/react";
+import { Loader2, Trash2 } from "lucide-react";
 
 interface Connection {
   id: string;
   appName: string;
   apiKey: string;
-  userId: string;
   createdAt: string;
 }
 
 export default function ConnectionsPage() {
+  const { data: session } = useSession();
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [loading, setLoading] = useState(false);
   const [appName, setAppName] = useState("");
   const [apiKey, setApiKey] = useState("");
-  const [loading, setLoading] = useState(false);
 
-  const userId = "user-001"; // later replaced by real auth
-
-  // Fetch all connections from DB
-  useEffect(() => {
-    const fetchConnections = async () => {
-      try {
-        const res = await fetch(`/api/connections?userId=${userId}`);
-        if (!res.ok) throw new Error("Failed to fetch connections");
+  const fetchConnections = useCallback(async () => {
+    if (!session?.user?.id) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/connections`);
+      if (res.ok) {
         const data = await res.json();
-        setConnections(data || []);
-      } catch (err) {
-        console.error("Error loading connections:", err);
+        setConnections(data);
+      } else {
+        console.error("Failed to fetch connections:", res.status);
       }
-    };
-    fetchConnections();
-  }, []);
+    } catch (err) {
+      console.error("Error fetching connections:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [session?.user?.id]);
 
-  // Add new connection
+  useEffect(() => {
+    fetchConnections();
+  }, [fetchConnections]);
+
+  const handleDelete = async (id: string) => {
+    // Optimistic update
+    const prev = [...connections];
+    setConnections(prev.filter((c) => c.id !== id));
+
+    try {
+      const res = await fetch(`/api/connections/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        console.error("Delete failed:", await res.text());
+        alert("Failed to delete connection. Please retry.");
+        setConnections(prev); // rollback
+      }
+    } catch (error) {
+      console.error("Delete error:", error);
+      alert("An error occurred while deleting.");
+      setConnections(prev); // rollback
+    }
+  };
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!appName || !apiKey) return;
-    setLoading(true);
     try {
       const res = await fetch("/api/connections", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, appName, apiKey }),
+        body: JSON.stringify({ appName, apiKey }),
       });
       if (res.ok) {
-        const newConn = await res.json();
-        setConnections((prev) => [...prev, newConn]);
         setAppName("");
         setApiKey("");
+        fetchConnections();
+      } else {
+        alert("Failed to add connection");
       }
-    } catch (err) {
-      console.error("Error adding connection:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Delete connection
-  const handleDelete = async (id: string) => {
-    try {
-      const res = await fetch(`/api/connections?id=${id}`, {
-        method: "DELETE",
-      });
-      if (res.ok) {
-        setConnections((prev) => prev.filter((conn) => conn.id !== id));
-      }
-    } catch (err) {
-      console.error("Error deleting connection:", err);
+    } catch (error) {
+      console.error("Add error:", error);
+      alert("An error occurred while adding the connection.");
     }
   };
 
   return (
-    <LayoutContainer title="Connected Apps">
-      <form onSubmit={handleAdd} className="space-y-4 mb-8">
-        <div>
-          <label className="label">App Name</label>
+    <div className="max-w-3xl mx-auto p-6">
+      <h1 className="text-2xl font-semibold mb-4">Your Connections</h1>
+
+      <form onSubmit={handleAdd} className="card p-4 mb-6">
+        <h2 className="text-lg font-medium mb-2">Add New Connection</h2>
+        <div className="flex gap-4">
           <input
+            type="text"
+            placeholder="App Name"
             value={appName}
             onChange={(e) => setAppName(e.target.value)}
+            required
             className="input"
-            placeholder="e.g., Notion, Zapier"
           />
-        </div>
-
-        <div>
-          <label className="label">API Key</label>
           <input
+            type="text"
+            placeholder="API Key"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
+            required
             className="input"
-            placeholder="Enter API key"
           />
+          <button type="submit" className="btn-primary">
+            Add
+          </button>
         </div>
-
-        <button
-          type="submit"
-          className="btn-primary w-full"
-          disabled={loading}
-        >
-          {loading ? "Saving..." : "Add Connection"}
-        </button>
       </form>
 
-      {connections.length > 0 ? (
+      {loading ? (
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Loader2 className="animate-spin h-5 w-5" /> Loading connections...
+        </div>
+      ) : connections.length === 0 ? (
+        <p className="text-muted-foreground">No connections found.</p>
+      ) : (
         <ul className="space-y-4">
           {connections.map((conn) => (
             <li
               key={conn.id}
-              className="card flex items-center justify-between"
+              className="card flex items-center justify-between p-4 hover:bg-muted transition"
             >
               <div>
-                <p className="font-medium">{conn.appName}</p>
-                <p className="text-sm text-muted-foreground">{conn.apiKey}</p>
+                <h3 className="font-medium">{conn.appName}</h3>
+                <p className="text-sm text-muted-foreground">
+                  Added {new Date(conn.createdAt).toLocaleDateString()}
+                </p>
               </div>
+
               <button
                 onClick={() => handleDelete(conn.id)}
-                className="btn-muted"
+                title="Delete Connection"
+                className="btn-primary"
               >
-                Remove
+                <Trash2 className="h-4 w-4" />
               </button>
             </li>
           ))}
         </ul>
-      ) : (
-        <p className="text-muted-foreground text-center">
-          No apps connected yet.
-        </p>
       )}
-    </LayoutContainer>
+    </div>
   );
 }
