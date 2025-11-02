@@ -13,9 +13,11 @@ model User {
   email       String       @unique
   password    String
   theme       String       @default("light")
+  displayName String?
+  lastLogin   DateTime?
+  connections Connection[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
-  connections Connection[]
 }
 
 model Connection {

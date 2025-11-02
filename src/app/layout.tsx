@@ -1,19 +1,26 @@
+// src/app/layout.tsx
 import "./globals.css";
 import { ReactNode } from "react";
-import NavBar from "@/components/NavBar";
-import ClientLayout from "@/components/ClientLayout";
 import { geistSans, geistMono } from "@/lib/fonts";
+import ClientLayout from "@/components/ClientLayout";
+import NavBar from "@/components/NavBar";
+
+export const metadata = {
+  title: "MindForge SaaS",
+  description: "Workflow Hub + AI Consolidation Engine for remote professionals",
+};
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   console.log("🧩 layout.tsx running on:", typeof window !== "undefined" ? "client" : "server");
+
   return (
-    <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} font-sans bg-background text-foreground`}
-      >
+    <html lang="en" suppressHydrationWarning>
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <ClientLayout>
           <NavBar />
-          <main className="p-6 min-h-screen transition-colors">{children}</main>
+          <main className="pt-16 min-h-screen bg-background text-foreground transition-colors duration-300">
+            {children}
+          </main>
         </ClientLayout>
       </body>
     </html>
