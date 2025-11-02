@@ -99,3 +99,6 @@ p, span, li {
     @apply text-sm font-medium text-foreground/80;
   }
 }
+
+.error-msg { color: rgb(239 68 68); } /* red-500 */
+input::placeholder { color: rgb(var(--muted-foreground)); }
