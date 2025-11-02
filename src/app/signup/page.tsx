@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 
 export default function SignupPage() {
+<<<<<<< HEAD
+=======
+  const [displayName, setDisplayName] = useState("");
+>>>>>>> sprint-3.2-nav-ux-polish
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -16,7 +20,7 @@ export default function SignupPage() {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ displayName, email, password }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -47,6 +51,17 @@ export default function SignupPage() {
       >
         <h2 className="text-2xl font-semibold mb-2 text-center">Create Account</h2>
         <input
+<<<<<<< HEAD
+=======
+          type="text"
+          placeholder="Display Name"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          required
+          className="input"
+        />
+        <input
+>>>>>>> sprint-3.2-nav-ux-polish
           type="email"
           placeholder="Email"
           value={email}

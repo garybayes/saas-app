@@ -30,7 +30,12 @@ export const authOptions: NextAuthOptions = {
           user.password &&
           (await bcrypt.compare(credentials.password, user.password))
         ) {
-          return { id: user.id, email: user.email, theme: user.theme };
+          return {
+            id: user.id,
+            email: user.email,
+            theme: user.theme,
+            displayName: user.displayName || "",
+          };
         }
 
         return null;
@@ -45,6 +50,10 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id;
         token.theme = (user as User).theme;
+<<<<<<< HEAD
+=======
+        token.displayName = (user as User).displayName;
+>>>>>>> sprint-3.2-nav-ux-polish
       }
       return token;
     },
@@ -52,6 +61,10 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         session.user.id = token.id as string;
         session.user.theme = token.theme as string;
+<<<<<<< HEAD
+=======
+        session.user.displayName = token.displayName as string;
+>>>>>>> sprint-3.2-nav-ux-polish
       }
       return session;
     },

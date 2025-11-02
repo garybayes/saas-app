@@ -7,11 +7,11 @@ const prisma = new PrismaClient();
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, password } = await req.json();
+    const { displayName, email, password } = await req.json();
 
-    if (!email || !password) {
+    if (!displayName || !email || !password) {
       return NextResponse.json(
-        { error: "Email and password are required" },
+        { error: "Display name, email and password are required" },
         { status: 400 }
       );
     }
@@ -28,6 +28,10 @@ export async function POST(req: NextRequest) {
 
     const user = await prisma.user.create({
       data: {
+<<<<<<< HEAD
+=======
+        displayName,
+>>>>>>> sprint-3.2-nav-ux-polish
         email,
         password: hashedPassword,
         theme: "light", // Default theme
@@ -36,7 +40,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       message: "User created successfully",
+<<<<<<< HEAD
       user: { id: user.id, email: user.email },
+=======
+      user: { id: user.id, email: user.email, displayName: user.displayName },
+>>>>>>> sprint-3.2-nav-ux-polish
     });
   } catch (error) {
     console.error("Signup error:", error);

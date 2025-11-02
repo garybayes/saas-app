@@ -21,6 +21,7 @@ export async function GET() {
     email: user?.email ?? "",
     theme: user?.theme ?? "light",
     lastLogin: (user as User)?.lastLogin ?? null,
+    displayName: (user as User)?.displayName ?? null,
     connections,
   });
 }
