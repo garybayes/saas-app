@@ -5,10 +5,7 @@ import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 
 export default function SignupPage() {
-<<<<<<< HEAD
-=======
   const [displayName, setDisplayName] = useState("");
->>>>>>> sprint-3.2-nav-ux-polish
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -51,8 +48,6 @@ export default function SignupPage() {
       >
         <h2 className="text-2xl font-semibold mb-2 text-center">Create Account</h2>
         <input
-<<<<<<< HEAD
-=======
           type="text"
           placeholder="Display Name"
           value={displayName}
@@ -61,7 +56,6 @@ export default function SignupPage() {
           className="input"
         />
         <input
->>>>>>> sprint-3.2-nav-ux-polish
           type="email"
           placeholder="Email"
           value={email}

@@ -41,11 +41,6 @@ export default function MobileNav() {
             >
               Settings
             </Link>
-<<<<<<< HEAD
-            <Link href="/api/auth/signout" onClick={() => setIsOpen(false)}>
-              Logout
-            </Link>
-=======
             <button
               onClick={() => {
                 setIsOpen(false);
@@ -55,7 +50,6 @@ export default function MobileNav() {
             >
               Logout
             </button>
->>>>>>> sprint-3.2-nav-ux-polish
           </div>
         </div>
       )}
