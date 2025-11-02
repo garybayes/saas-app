@@ -11,10 +11,13 @@ datasource db {
 model User {
   id          String       @id @default(cuid())
   email       String       @unique
+  password    String
   theme       String       @default("light")
+  displayName String?
+  lastLogin   DateTime?
+  connections Connection[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
-  connections Connection[]
 }
 
 model Connection {
