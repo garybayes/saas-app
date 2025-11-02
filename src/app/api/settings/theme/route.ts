@@ -1,35 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { PrismaClient } from "@prisma/client";
+import { authOptions } from "../../auth/[...nextauth]/route";
 
-export async function GET(req: NextRequest) {
-  const userId = req.nextUrl.searchParams.get("userId");
-  if (!userId)
-    return NextResponse.json({ error: "Missing userId" }, { status: 400 });
+const prisma = new PrismaClient();
+
+export async function GET() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const user = await prisma.user.findUnique({
-    where: { id: userId },
+    where: { id: session.user.id },
     select: { theme: true },
   });
 
-  return NextResponse.json(user || { theme: "light" });
+  return NextResponse.json({ theme: user?.theme ?? "light" });
 }
 
 export async function POST(req: NextRequest) {
-  try {
-    const { userId, theme } = await req.json();
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const updatedUser = await prisma.user.upsert({
-      where: { id: userId },
-      update: { theme },
-      create: { id: userId, theme, email: `${userId}@example.com` },
-    });
+  const { theme } = await req.json();
+  await prisma.user.update({
+    where: { id: session.user.id },
+    data: { theme },
+  });
 
-    return NextResponse.json(updatedUser);
-  } catch (error) {
-    console.error("Error updating theme:", error);
-    return NextResponse.json(
-      { error: "Failed to update theme" },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json({ success: true, theme });
 }
