@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
+import { signOut } from "next-auth/react";
 
 export default function MobileNav() {
   const [isOpen, setIsOpen] = useState(false);
@@ -40,9 +41,15 @@ export default function MobileNav() {
             >
               Settings
             </Link>
-            <Link href="/api/auth/signout" onClick={() => setIsOpen(false)}>
+            <button
+              className="text-foreground text-left"
+              onClick={() => {
+                setIsOpen(false);
+                signOut({ callbackUrl: "/login" });
+              }}
+            >
               Logout
-            </Link>
+            </button>
           </div>
         </div>
       )}

@@ -18,6 +18,7 @@ export async function GET() {
   });
 
   return NextResponse.json({
+    displayName: user?.displayName ?? null,
     email: user?.email ?? "",
     theme: user?.theme ?? "light",
     lastLogin: (user as User)?.lastLogin ?? null,

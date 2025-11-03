@@ -7,7 +7,7 @@ const prisma = new PrismaClient();
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, password } = await req.json();
+    const { displayName, email, password } = await req.json();
 
     if (!email || !password) {
       return NextResponse.json(
@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
 
     const user = await prisma.user.create({
       data: {
+        displayName,
         email,
         password: hashedPassword,
         theme: "light", // Default theme
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       message: "User created successfully",
-      user: { id: user.id, email: user.email },
+      user: { id: user.id, email: user.email, displayName: user.displayName },
     });
   } catch (error) {
     console.error("Signup error:", error);

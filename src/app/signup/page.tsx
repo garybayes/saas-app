@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 
 export default function SignupPage() {
+  const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -16,7 +17,7 @@ export default function SignupPage() {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ displayName, email, password }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -45,7 +46,17 @@ export default function SignupPage() {
         onSubmit={handleSignup}
         className="card w-full max-w-md flex flex-col gap-4"
       >
-        <h2 className="text-2xl font-semibold mb-2 text-center">Create Account</h2>
+        <h2 className="text-2xl font-semibold mb-2 text-center">
+          Create Account
+        </h2>
+        <input
+          type="text"
+          placeholder="Display Name"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          required
+          className="input"
+        />
         <input
           type="email"
           placeholder="Email"

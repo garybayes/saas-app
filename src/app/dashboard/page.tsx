@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 
 interface Stats {
+  displayName?: string | null;
   email: string;
   theme: string;
   lastLogin?: string;
@@ -23,7 +24,7 @@ export default function DashboardPage() {
   return (
     <div className="p-6 space-y-4">
       <h1 className="text-2xl font-semibold">
-        Welcome back, {stats.email || "User"}
+        Welcome back, {stats.displayName || stats.email || "User"}
       </h1>
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="card">Connections: {stats.connections}</div>
