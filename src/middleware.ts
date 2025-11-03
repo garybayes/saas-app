@@ -1,27 +1,38 @@
-import { withAuth } from "next-auth/middleware";
-import { NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
+import { NextRequest, NextResponse } from "next/server";
 
-export default withAuth(
-  function middleware(req) {
-    // This function is only called if the user is authenticated.
-    if (req.nextUrl.pathname.startsWith("/login") || req.nextUrl.pathname.startsWith("/signup")) {
-      return NextResponse.redirect(new URL("/connections", req.url));
-    }
-  },
-  {
-    // Configure `withAuth` behavior
-    pages: {
-      signIn: "/login",
-    },
+const publicPages = ["/login", "/signup"];
+
+export async function middleware(req: NextRequest) {
+  const token = await getToken({ req });
+  const { pathname } = req.nextUrl;
+
+  const isPublicPage = publicPages.some((path) => pathname.startsWith(path));
+
+  // If the user is authenticated and on a public page, redirect to connections
+  if (token && isPublicPage) {
+    return NextResponse.redirect(new URL("/connections", req.url));
   }
-);
+
+  // If the user is not authenticated and not on a public page, redirect to login
+  if (!token && !isPublicPage) {
+    const url = new URL("/login", req.url);
+    url.searchParams.set("callbackUrl", req.nextUrl.pathname);
+    return NextResponse.redirect(url);
+  }
+
+  return NextResponse.next();
+}
 
 export const config = {
   matcher: [
-    "/dashboard/:path*",
-    "/connections/:path*",
-    "/settings/:path*",
-    "/login",
-    "/signup",
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api (API routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
+    "/((?!api|_next/static|_next/image|favicon.ico).*)",
   ],
 };
