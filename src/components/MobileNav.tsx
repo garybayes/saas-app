@@ -42,11 +42,11 @@ export default function MobileNav() {
               Settings
             </Link>
             <button
+              className="text-foreground text-left"
               onClick={() => {
                 setIsOpen(false);
                 signOut({ callbackUrl: "/login" });
               }}
-              className="btn-muted text-left"
             >
               Logout
             </button>

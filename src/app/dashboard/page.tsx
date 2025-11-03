@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 
 interface Stats {
-  displayName: string;
+  displayName?: string | null;
   email: string;
   theme: string;
   lastLogin?: string;

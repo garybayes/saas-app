@@ -46,7 +46,17 @@ export default function SignupPage() {
         onSubmit={handleSignup}
         className="card w-full max-w-md flex flex-col gap-4"
       >
-        <h2 className="text-2xl font-semibold mb-2 text-center">Create Account</h2>
+        <h2 className="text-2xl font-semibold mb-2 text-center">
+          Create Account
+        </h2>
+        <input
+          type="text"
+          placeholder="Display Name"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          required
+          className="input"
+        />
         <input
           type="text"
           placeholder="Display Name"
