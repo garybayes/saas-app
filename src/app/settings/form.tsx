@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { useToast } from "@/components/ui/use-toast";
+import { Session } from "next-auth";
 
-export default function ProfileForm({ user }: { user: any }) {
+export default function ProfileForm({ user }: { user: Session["user"] }) {
   const [displayName, setDisplayName] = useState(user.displayName || "");
   const { toast } = useToast();
 
