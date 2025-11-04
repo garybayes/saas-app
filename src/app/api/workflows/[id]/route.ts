@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { decrypt } from "@/lib/crypto";
 
-export async function GET(
-  request: NextRequest,
+export async function PUT(
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   const { id } = params;
@@ -15,19 +14,13 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const connection = await prisma.connection.findFirst({
+  const { name, data } = await req.json();
+  const updated = await prisma.workflow.updateMany({
     where: { id, userId: session.user.id },
+    data: { name, data },
   });
 
-  if (!connection) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  if (connection.apiKey) {
-    connection.apiKey = decrypt(connection.apiKey);
-  }
-
-  return NextResponse.json(connection);
+  return NextResponse.json(updated);
 }
 
 export async function DELETE(
@@ -41,7 +34,7 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  await prisma.connection.deleteMany({
+  await prisma.workflow.deleteMany({
     where: { id, userId: session.user.id },
   });
 
