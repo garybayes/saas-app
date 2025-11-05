@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
@@ -30,4 +31,10 @@ export default defineConfig({
   ],
 
   outputDir: "test-results/",
+=======
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './src/tests/e2e',
+>>>>>>> 0464bba (Apply patch /tmp/1d1d7b2c-7440-46c7-ad08-0868ac1a05b6.patch)
 });

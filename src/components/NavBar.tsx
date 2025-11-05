@@ -19,6 +19,9 @@ export default function NavBar() {
         <Link href="/connections" className={linkStyle("/connections")}>
           Connections
         </Link>
+        <Link href="/workflows" className={linkStyle("/workflows")}>
+          Workflows
+        </Link>
         <Link href="/settings" className={linkStyle("/settings")}>
           Settings
         </Link>

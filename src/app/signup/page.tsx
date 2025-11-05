@@ -58,14 +58,6 @@ export default function SignupPage() {
           className="input"
         />
         <input
-          type="text"
-          placeholder="Display Name"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          required
-          className="input"
-        />
-        <input
           type="email"
           placeholder="Email"
           value={email}

@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
         email,
         password: hashedPassword,
         theme: "light", // Default theme
+        lastLogin: new Date(),
       },
     });
 
