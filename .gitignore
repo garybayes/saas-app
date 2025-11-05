@@ -41,7 +41,23 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+prisma/dev.db
 
 # Tailwind output
 /src/app/output.css
 
+# Reports and results
+test-results/
+playwright-report/
+
+# Office / temp files
+~$*.docx
+backup.sql
+
+# Prisma artifacts
+node_modules/
+.prisma/
+
+# System junk
+.DS_Store
+Thumbs.db
