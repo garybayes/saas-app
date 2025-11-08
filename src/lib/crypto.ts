@@ -2,6 +2,18 @@ import crypto from "crypto";
 
 const ALGORITHM = "aes-256-cbc";
 const IV_LENGTH = 16;
+const keyBase64 = process.env.ENCRYPTION_KEY;
+
+if (!keyBase64) {
+  throw new Error('ENCRYPTION_KEY is missing from environment variables.');
+}
+
+const key = Buffer.from(keyBase64, 'base64');
+if (key.length !== 32) {
+  throw new Error(
+    `Invalid ENCRYPTION_KEY length: expected 32 bytes, got ${key.length}.`
+  );
+}
 
 const key = Buffer.from(process.env.ENCRYPTION_KEY || "", "utf-8");
 if (key.length !== 32) {
