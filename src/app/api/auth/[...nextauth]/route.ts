@@ -30,6 +30,10 @@ export const authOptions: NextAuthOptions = {
           user.password &&
           (await bcrypt.compare(credentials.password, user.password))
         ) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { lastLogin: new Date() },
+          });
           return {
             id: user.id,
             email: user.email,
@@ -72,3 +76,4 @@ export const authOptions: NextAuthOptions = {
 const handler = NextAuth(authOptions);
 
 export { handler as GET, handler as POST };
+

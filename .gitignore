@@ -46,3 +46,11 @@ next-env.d.ts
 # Tailwind output
 /src/app/output.css
 
+# Test and Playwright artifacts
+test-results/
+playwright-report/
+*.log
+*.tmp
+
+coverage/
+.vitest/

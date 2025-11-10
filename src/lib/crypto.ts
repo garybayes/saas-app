@@ -8,14 +8,7 @@ if (!keyBase64) {
   throw new Error('ENCRYPTION_KEY is missing from environment variables.');
 }
 
-const key = Buffer.from(keyBase64, 'base64');
-if (key.length !== 32) {
-  throw new Error(
-    `Invalid ENCRYPTION_KEY length: expected 32 bytes, got ${key.length}.`
-  );
-}
-
-const key = Buffer.from(process.env.ENCRYPTION_KEY || "", "utf-8");
+const key = Buffer.from(process.env.ENCRYPTION_KEY || "", "base64");
 if (key.length !== 32) {
   throw new Error("ENCRYPTION_KEY must be exactly 32 characters long.");
 }
@@ -28,10 +21,17 @@ export function encrypt(text: string): string {
 }
 
 export function decrypt(encryptedText: string): string {
-  const [ivHex, encryptedHex] = encryptedText.split(":");
-  const iv = Buffer.from(ivHex, "hex");
-  const encrypted = Buffer.from(encryptedHex, "hex");
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  return decrypted.toString("utf8");
+  if (!encryptedText) return ""; // ✅ Skip null/undefined gracefully
+
+  try {
+    const [ivHex, encryptedHex] = encryptedText.split(":");
+    const iv = Buffer.from(ivHex, "hex");
+    const encrypted = Buffer.from(encryptedHex, "hex");
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    return decrypted.toString("utf8");
+  } catch (error) {
+    console.error("Error decrypting API key:", error);
+    return ""; // ✅ Fallback: don’t break API responses
+  }
 }
