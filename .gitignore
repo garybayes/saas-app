@@ -106,3 +106,4 @@ docs/.cache/
 # --- WSL specific temp mounts ---
 /mnt/c/Users/*/AppData/Local/Temp/*
 /mnt/c/Users/*/AppData/Roaming/npm-cache/
+next-env.d.ts
