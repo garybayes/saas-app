@@ -1,6 +1,1 @@
-{
-  "schemaVersion": 1,
-  "label": "codex-status",
-  "message": "pending",
-  "color": "lightgrey"
-}
+{"schemaVersion":1,"label":"codex-status","message":"failed","color":"red"}
