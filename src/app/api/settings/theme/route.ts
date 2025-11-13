@@ -1,33 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { PrismaClient } from "@prisma/client";
-import { authOptions } from "../../auth/[...nextauth]/route";
+import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/lib/requireAuth";
 
-const prisma = new PrismaClient();
-
-export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id)
+export async function GET(req: NextRequest): Promise<Response> {
+  const { userId, response } = await requireAuth(req);
+  if (response) return response;
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
+    where: { id: userId },
     select: { theme: true },
   });
 
-  return NextResponse.json({ theme: user?.theme ?? "light" });
+  return NextResponse.json({ theme: user?.theme || "light" });
 }
 
-export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id)
+export async function PATCH(req: NextRequest): Promise<Response> {
+  const { userId, response } = await requireAuth(req);
+  if (response) return response;
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const { theme } = await req.json();
-  await prisma.user.update({
-    where: { id: session.user.id },
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
     data: { theme },
+    select: { theme: true },
   });
 
-  return NextResponse.json({ success: true, theme });
+  return NextResponse.json({ theme: updated.theme });
 }

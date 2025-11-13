@@ -50,8 +50,8 @@ prisma/seed-output.log
 *.db-journal
 
 # --- Playwright and E2E test artifacts ---
-playwright-report/
-test-results/
+tests/playwright-report/
+tests/test-results/
 blob-report/
 *.zip
 *.har

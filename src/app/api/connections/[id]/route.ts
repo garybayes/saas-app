@@ -1,61 +1,26 @@
+// src/app/api/connections/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "../../auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/lib/requireAuth";
 
-/**
- * DELETE /api/connections/[id]
- * Force-fix: Satisfies the build error which incorrectly expects params to be a Promise.
- */
-export async function DELETE(
-  req: NextRequest,
-  // 🎯 FIX: Match the incorrect type reported by the compiler (Promise<{ id: string }>)
-  context: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // 💡 AWAIT the params object because the type requires it.
-    const awaitedContext = await context.params;
-    const { id } = awaitedContext;
-
-    if (!id) {
-      return NextResponse.json({ error: "Missing connection ID" }, { status: 400 });
-    }
-
-    // First, verify the connection exists and belongs to the user.
-    const connection = await prisma.connection.findFirst({
-      where: {
-        id: id,
-        userId: session.user.id,
-      },
-    });
-
-    if (!connection) {
-      return NextResponse.json(
-        { error: "Connection not found or you do not have permission to delete it" },
-        { status: 404 }
-      );
-    }
-
-    // If verification passes, delete the connection.
-    await prisma.connection.delete({
-      where: { id },
-    });
-
-    return NextResponse.json({ success: true }, { status: 200 });
-  } catch (error: unknown) {
-    let errorMessage = "Failed to delete connection";
-    if (error instanceof Error) {
-      errorMessage = error.message;
-    }
-    console.error("Error deleting connection:", errorMessage);
-    return NextResponse.json(
-      { error: errorMessage },
-      { status: 500 }
-    );
+// DELETE /api/connections/[id]
+export async function DELETE(req: NextRequest): Promise<Response> {
+  const { userId, response } = await requireAuth(req);
+  if (response) return response; // Return 401 if unauthorized
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const url = new URL(req.url);
+  const id = url.pathname.split("/").pop();
+  if (!id) {
+    return NextResponse.json({ error: "Missing connection ID" }, { status: 400 });
+  }
+
+  // ✅ userId is guaranteed to be string here
+  await prisma.connection.deleteMany({
+    where: { id, userId },
+  });
+
+  return NextResponse.json({ success: true });
 }

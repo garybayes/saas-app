@@ -1,47 +1,36 @@
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "../../auth/[...nextauth]/route";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { User } from "@prisma/client";
+import { requireAuth } from "@/lib/requireAuth";
 
-export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
+export async function GET(req: NextRequest): Promise<Response> {
+  const { userId, response } = await requireAuth(req);
+  if (response) return response;
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-  });
-  const connections = await prisma.connection.count({
-    where: { userId: session.user.id },
+    where: { id: userId },
+    select: { email: true, displayName: true, theme: true },
   });
 
-  return NextResponse.json({
-    displayName: user?.displayName ?? null,
-    email: user?.email ?? "",
-    theme: user?.theme ?? "light",
-    lastLogin: (user as User)?.lastLogin ?? null,
-    displayName: (user as User)?.displayName ?? null,
-    connections,
-  });
+  return NextResponse.json({ user });
 }
 
-export async function PUT(req: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
+export async function PATCH(req: NextRequest): Promise<Response> {
+  const { userId, response } = await requireAuth(req);
+  if (response) return response;
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await req.json();
+  const { displayName, theme } = await req.json();
+
   const updated = await prisma.user.update({
-    where: { id: session.user.id },
-    data: {
-      displayName: body.displayName,
-      theme: body.theme,
-      lastLogin: new Date(),
-    },
+    where: { id: userId },
+    data: { displayName, theme },
+    select: { email: true, displayName: true, theme: true },
   });
 
-  return NextResponse.json(updated);
+  return NextResponse.json({ user: updated });
 }

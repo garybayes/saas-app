@@ -1,79 +1,24 @@
 // src/app/api/auth/[...nextauth]/route.ts
-import NextAuth, { NextAuthOptions } from "next-auth";
-import CredentialsProvider from "next-auth/providers/credentials";
-import { PrismaAdapter } from "@next-auth/prisma-adapter";
-import { PrismaClient, User } from "@prisma/client";
-import bcrypt from "bcryptjs";
+import { Auth } from "@auth/core";
+import { authConfig } from "@/lib/authOptions";
+import { NextRequest, NextResponse } from "next/server";
 
-const prisma = new PrismaClient();
+// ✅ Handle GET requests (session, csrf, providers, etc.)
+export async function GET(req: NextRequest) {
+  const res = await Auth(req, authConfig);
+  return new NextResponse(res.body, {
+    status: res.status,
+    headers: res.headers,
+  });
+}
 
-export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma),
-  providers: [
-    CredentialsProvider({
-      name: "Credentials",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize(credentials) {
-        if (!credentials?.email || !credentials.password) {
-          return null;
-        }
+// ✅ Handle POST requests (signIn, signOut, callback, etc.)
+export async function POST(req: NextRequest) {
+  const res = await Auth(req, authConfig);
+  return new NextResponse(res.body, {
+    status: res.status,
+    headers: res.headers,
+  });
+}
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email },
-        });
-
-        if (
-          user &&
-          user.password &&
-          (await bcrypt.compare(credentials.password, user.password))
-        ) {
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { lastLogin: new Date() },
-          });
-          return {
-            id: user.id,
-            email: user.email,
-            theme: user.theme,
-            displayName: user.displayName || "",
-          };
-        }
-
-        return null;
-      },
-    }),
-  ],
-  session: {
-    strategy: "jwt",
-  },
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
-        token.theme = (user as User).theme;
-        token.displayName = (user as User).displayName;
-      }
-      return token;
-    },
-    async session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.id as string;
-        session.user.theme = token.theme as string;
-        session.user.displayName = token.displayName as string;
-      }
-      return session;
-    },
-  },
-  pages: {
-    signIn: "/login",
-  },
-  secret: process.env.NEXTAUTH_SECRET,
-};
-
-const handler = NextAuth(authOptions);
-
-export { handler as GET, handler as POST };
-
+// ❌ No DELETE, PUT, or PATCH handlers are needed here

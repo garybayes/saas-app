@@ -12,12 +12,12 @@ interface Stats {
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null);
 
-  useEffect(() => {
-    fetch("/api/settings/profile")
-      .then((res) => res.json())
-      .then(setStats)
-      .catch(console.error);
-  }, []);
+useEffect(() => {
+  fetch("/api/settings/profile")
+    .then((res) => res.ok ? res.json() : Promise.reject("profile fetch failed"))
+    .then(setStats)
+    .catch(() => setStats(null));
+}, []);
 
   if (!stats) return <p>Loading dashboard...</p>;
 

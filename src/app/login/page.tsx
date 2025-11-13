@@ -10,16 +10,20 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const router = useRouter();
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const result = await signIn("credentials", {
-      redirect: false,
-      email,
-      password,
-    });
-    if (result?.ok) router.push("/connections");
-    else setError("Invalid email or password");
-  };
+const handleLogin = async (e: React.FormEvent) => {
+  e.preventDefault();
+  const result = await signIn("credentials", {
+    redirect: false,
+    email,
+    password,
+  });
+
+  if (result?.ok) {
+    router.push("/dashboard"); // ✅ Go to dashboard after login
+  } else {
+    setError("Login failed. Please check your credentials.");
+  }
+};
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background text-foreground">

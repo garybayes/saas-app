@@ -4,11 +4,14 @@ import { prisma } from "@/lib/prisma";
 describe("Workflows API", () => {
   let user;
 
+
   beforeAll(async () => {
+    await prisma.user.deleteMany({ where: { email: "test@example.com" } });
     user = await prisma.user.create({
       data: {
         email: "test@example.com",
         password: "password",
+        theme: "light",
       },
     });
   });

@@ -35,3 +35,15 @@ export function decrypt(encryptedText: string): string {
     return ""; // ✅ Fallback: don’t break API responses
   }
 }
+import bcrypt from "bcryptjs";
+
+// Securely hash user passwords
+export async function hashPassword(password: string): Promise<string> {
+  const salt = await bcrypt.genSalt(10);
+  return bcrypt.hash(password, salt);
+}
+
+// Verify a plain password against a stored hash
+export async function verifyPassword(password: string, hashed: string): Promise<boolean> {
+  return bcrypt.compare(password, hashed);
+}
