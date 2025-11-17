@@ -2,8 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { prisma } from "@/lib/prisma";
 
 describe("Workflows API", () => {
-  let user;
-
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let user: any;
 
   beforeAll(async () => {
     await prisma.user.deleteMany({ where: { email: "test@example.com" } });
@@ -17,6 +17,7 @@ describe("Workflows API", () => {
   });
 
   afterAll(async () => {
+// @ts-expect-error – workflow not yet implemented
     await prisma.workflow.deleteMany({ where: { userId: user.id } });
     await prisma.user.delete({ where: { id: user.id } });
   });

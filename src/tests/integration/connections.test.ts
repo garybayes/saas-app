@@ -32,7 +32,7 @@ describe("Connections CRUD", () => {
     const conn = await prisma.connection.findUnique({
       where: { id: testConnection.id },
     });
-    const decrypted = decrypt(conn!.apiKey);
+    const decrypted = decrypt(conn!.apiKey ?? "");
     expect(decrypted).toBe("secretKey123");
   });
 });

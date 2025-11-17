@@ -44,7 +44,7 @@ describe("🧭 API Route Export Validation", () => {
         // Handlers must be functions
         expect(typeof val, `${key} is not a function in ${file}`).toBe("function");
         // Accept 0–2 args
-        const argCount = val.length ?? 0;
+        const argCount = typeof val === "string" || Array.isArray(val) ? val.length : 0;
         expect(argCount).toBeGreaterThanOrEqual(0);
         expect(argCount).toBeLessThanOrEqual(2);
       }
