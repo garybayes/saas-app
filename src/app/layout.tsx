@@ -1,20 +1,26 @@
-// src/app/layout.tsx
 import "./globals.css";
 import { ReactNode } from "react";
 import { geistSans, geistMono } from "@/lib/fonts";
 import ClientLayout from "@/components/ClientLayout";
 import NavBar from "@/components/NavBar";
+import { themePreloadScript } from "./theme-preload";
 
 export const metadata = {
   title: "MindForge SaaS",
-  description: "Workflow Hub + AI Consolidation Engine for remote professionals",
+  description: "Workflow Hub + AI Consolidation Engine",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
-  console.log("🧩 layout.tsx running on:", typeof window !== "undefined" ? "client" : "server");
-
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: themePreloadScript(),
+          }}
+        />
+      </head>
+
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <ClientLayout>
           <NavBar />

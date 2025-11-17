@@ -1,55 +1,95 @@
 // src/lib/authOptions.ts
-import { prisma } from "@/lib/prisma";
-import Credentials from "@auth/core/providers/credentials";
-import { PrismaAdapter } from "@auth/prisma-adapter";
-import type { AuthConfig } from "@auth/core";
-import { verifyPassword } from "@/lib/crypto";
+import type { NextAuthOptions } from "next-auth";
+import NextAuth from "next-auth";
+import CredentialsProvider from "next-auth/providers/credentials";
+import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
-export const authConfig: AuthConfig = {
-  adapter: PrismaAdapter(prisma),
+const prisma = new PrismaClient();
+
+export const authConfig: NextAuthOptions = {
+  pages: {
+    signIn: "/login",
+  },
+
   providers: [
-    Credentials({
-      name: "Credentials",
+    CredentialsProvider({
+      name: "credentials",
       credentials: {
-        email: { label: "Email", type: "email" },
+        email: { label: "Email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null;
 
-        const email = credentials.email as string;
-        const password = credentials.password as string;
+      async authorize(creds) {
+        if (!creds?.email || !creds?.password) return null;
 
-        const user = await prisma.user.findUnique({ where: { email } });
+        const user = await prisma.user.findUnique({
+          where: { email: creds.email },
+        });
+
         if (!user) return null;
 
-        const isValid = await verifyPassword(password, user.password);
-        if (!isValid) return null;
-
-        await prisma.user.update({
-          where: { email: user.email },
-          data: { lastLogin: new Date() },
-        });
+        const valid = await bcrypt.compare(creds.password, user.password);
+        if (!valid) return null;
 
         return {
           id: user.id,
           email: user.email,
-          name: user.displayName,
+          displayName: user.displayName,
+          theme: user.theme,
         };
       },
     }),
   ],
-  session: { strategy: "jwt" },
-  pages: {
-    signIn: "/login",
-    newUser: "/signup",
+
+  session: {
+    strategy: "jwt",
   },
+
+  secret: process.env.NEXTAUTH_SECRET,
+
   callbacks: {
-    async session({ session, token }) {
-      if (token?.sub && session.user) {
-        session.user.id = token.sub;
+    async jwt({ token, user, trigger, session }) {
+      // First login: merge DB fields into token
+      if (user) {
+        token.id = user.id;
+        token.email = user.email;
+        token.displayName = user.displayName;
+        token.theme = user.theme;
       }
+
+      // Theme/profile updated in Settings → sync JWT
+      if (trigger === "update" && session) {
+        if (session.displayName) token.displayName = session.displayName;
+        if (session.theme) token.theme = session.theme;
+      }
+
+      return token;
+    },
+
+    async session({ session, token }) {
+      session.user = {
+        id: token.id as string,
+        email: token.email as string,
+        displayName: token.displayName as string,
+        theme: token.theme as string,
+      };
       return session;
     },
   },
+
+  events: {
+    async signIn({ user }) {
+      if (!user?.id) return;
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { lastLogin: new Date() },
+      });
+    },
+  },
 };
+
+// Required by Next.js Route Handler
+const handler = NextAuth(authConfig);
+export { handler as GET, handler as POST };

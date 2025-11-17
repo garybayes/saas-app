@@ -1,27 +1,23 @@
-// src/lib/requireAuth.ts
 import { NextRequest, NextResponse } from "next/server";
-import { getToken } from "@auth/core/jwt";
+import { getToken } from "next-auth/jwt";
 
-/**
- * Shared authentication helper for API routes.
- * Validates JWT session and returns userId or an error response.
- */
-export async function requireAuth(
-  req: NextRequest
-): Promise<{ userId: string | null; response?: NextResponse }> {
-  const secret = process.env.AUTH_SECRET ?? "";
-  const salt = process.env.AUTH_SALT ?? secret; // ✅ fallback ensures required param
+// Works ONLY with your actual cookie format
+const cookieName = "next-auth.session-token";
 
+export async function requireAuth(req: NextRequest) {
   const token = await getToken({
     req,
-    secret,
-    salt, // ✅ new required param in Auth.js v2
+    secret: process.env.NEXTAUTH_SECRET,
+    cookieName,
   });
 
   if (!token?.sub) {
     return {
       userId: null,
-      response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+      response: NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      ),
     };
   }
 
