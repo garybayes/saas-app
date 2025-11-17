@@ -1,178 +1,172 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>SAAS-APP — Full Codex + CI Monitoring Dashboard</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-
+<meta charset="UTF-8">
+<title>Codex Deployment Dashboard</title>
 <style>
-body {
-  background: #0d1117;
-  color: #c9d1d9;
-  font-family: Arial, sans-serif;
-  padding: 20px;
-}
-h1, h2 {
-  color: #58a6ff;
-}
-.card {
-  background: #161b22;
-  border: 1px solid #30363d;
-  padding: 16px;
-  margin-bottom: 20px;
-  border-radius: 8px;
-}
-pre {
-  background: #0d1117;
-  border: 1px solid #30363d;
-  padding: 12px;
-  overflow-x: auto;
-  border-radius: 6px;
-}
-.success { color: #3fb950; }
-.fail { color: #f85149; }
-.pending { color: #d29922; }
+    body {
+        font-family: Arial, sans-serif;
+        margin: 40px;
+        background: #f5f5f5;
+    }
+    h1 {
+        color: #222;
+    }
+    .card {
+        background: white;
+        padding: 20px;
+        margin-bottom: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    .status {
+        font-size: 1.2em;
+        padding: 10px 15px;
+        display: inline-block;
+        border-radius: 6px;
+        font-weight: bold;
+        color: white;
+    }
+    .status-pending { background: #999; }
+    .status-running { background: #0275d8; }
+    .status-success { background: #5cb85c; }
+    .status-failed  { background: #d9534f; }
+    .status-stale   { background: #f0ad4e; }
+    pre {
+        background: #eee;
+        padding: 10px;
+        border-radius: 6px;
+        overflow-x: auto;
+    }
+    .timestamp {
+        color: #666;
+        margin-top: 8px;
+        font-size: 0.9em;
+    }
 </style>
 </head>
-
 <body>
-<h1>🚀 SAAS-APP — Codex + CI Monitoring Dashboard</h1>
-<p>Real-time visualization of: PR Status, Codex Signals, CI Pipelines, TypeScript, Playwright, Prisma, and Branch Activity.</p>
 
-<script>
-const REPO = "garybayes/saas-app";
-// (optional) Add token for higher rate limits — NEVER commit with token
-const GH_TOKEN = null; 
+<h1>Codex Deployment Dashboard</h1>
 
-async function gh(url) {
-  const headers = GH_TOKEN ? { Authorization: `Bearer ${GH_TOKEN}` } : {};
-  const res = await fetch(url, { headers });
-  return await res.json();
-}
-</script>
-
-<!-- ==================== PR STATUS ==================== -->
 <div class="card">
-<h2>🔵 Active Pull Requests (Sprint 5)</h2>
-<div id="prs">Loading...</div>
+    <h2>Codex Status</h2>
+    <div id="codex-status" class="status status-pending">Loading...</div>
+    <div class="timestamp" id="last-updated"></div>
+</div>
+
+<div class="card">
+    <h2>Active Pull Requests</h2>
+    <div id="pr-list">Loading...</div>
+</div>
+
+<div class="card">
+    <h2>Codex Checks</h2>
+    <pre id="codex-checks">Loading...</pre>
 </div>
 
 <script>
-async function loadPRs() {
-  const data = await gh(`https://api.github.com/repos/${REPO}/pulls?state=open`);
-  if (!Array.isArray(data)) {
-    document.getElementById("prs").innerHTML = "Error loading PRs.";
-    return;
-  }
+// ---- CONFIG ----
+const OWNER = "garybayes";
+const REPO  = "saas-app";
+const STATUS_URL = `https://raw.githubusercontent.com/${OWNER}/${REPO}/main/.github/badges/codex-status.json`;
+const PRS_URL = `https://api.github.com/repos/${OWNER}/${REPO}/pulls`;
+const CHECKS_URL = (pr) => `https://api.github.com/repos/${OWNER}/${REPO}/commits/${pr}/check-runs`;
 
-  let html = "";
-  data.forEach(pr => {
-    html += `
-      <div class="card">
-        <h3>#${pr.number} — ${pr.title}</h3>
-        <p>Author: ${pr.user.login}</p>
-        <p>Status: <span class="pending">Checking workflows...</span></p>
-        <a href="${pr.html_url}" target="_blank">Open PR</a>
-      </div>
-    `;
-  });
-
-  document.getElementById("prs").innerHTML = html;
+function statusClass(status) {
+    switch((status || "").toLowerCase()) {
+        case "running": return "status-running";
+        case "success": return "status-success";
+        case "failed":  return "status-failed";
+        case "stale":   return "status-stale";
+        default:        return "status-pending";
+    }
 }
-loadPRs();
-</script>
 
-<!-- ==================== WORKFLOW RUNS ==================== -->
-<div class="card">
-<h2>⚙️ Latest Workflow Runs</h2>
-<div id="workflows">Loading...</div>
-</div>
+async function updateCodexStatus() {
+    try {
+        const res = await fetch(STATUS_URL);
+        const data = await res.json();
 
-<script>
-async function loadWorkflows() {
-  const data = await gh(`https://api.github.com/repos/${REPO}/actions/runs?per_page=10`);
+        let status = data.message || "unknown";
 
-  if (!data || !data.workflow_runs) {
-    document.getElementById("workflows").innerHTML = "Error loading workflows.";
-    return;
-  }
+        const el = document.getElementById("codex-status");
+        el.textContent = status.toUpperCase();
+        el.className = "status " + statusClass(status);
 
-  let html = "<table><tr><th>Name</th><th>Status</th><th>Conclusion</th><th>Event</th></tr>";
-  data.workflow_runs.forEach(run => {
-    html += `
-      <tr>
-        <td>${run.name}</td>
-        <td>${run.status}</td>
-        <td class="${run.conclusion === "success" ? "success" : "fail"}">${run.conclusion}</td>
-        <td>${run.event}</td>
-      </tr>
-    `;
-  });
-  html += "</table>";
+        document.getElementById("last-updated").textContent =
+            "Last Updated: " + new Date().toLocaleString();
 
-  document.getElementById("workflows").innerHTML = html;
+    } catch (err) {
+        console.error("Status load error", err);
+        document.getElementById("codex-status").textContent = "ERROR";
+    }
 }
-loadWorkflows();
-</script>
 
-<!-- ==================== CODEX SIGNALS ==================== -->
-<div class="card">
-<h2>🤖 Codex Activity Signals</h2>
-<div id="codex-signals">Loading...</div>
-</div>
+async function updatePRList() {
+    try {
+        const res = await fetch(PRS_URL);
+        const prs = await res.json();
 
-<script>
-async function loadCodexSignals() {
-  const badge = await gh(`https://raw.githubusercontent.com/${REPO}/main/.github/badges/codex-status.json`);
+        if (!prs.length) {
+            document.getElementById("pr-list").innerHTML = "<p>No open pull requests.</p>";
+            return;
+        }
 
-  let status = badge?.status ?? "unknown";
-  let color = "pending";
-  if (status === "active") color = "success";
-  if (status === "error") color = "fail";
+        let html = "<ul>";
+        for (const pr of prs) {
+            html += `
+                <li>
+                    <strong>#${pr.number}</strong> — ${pr.title}<br>
+                    <a href="${pr.html_url}" target="_blank">Open PR</a>
+                </li>
+                <br>
+            `;
+        }
+        html += "</ul>";
 
-  document.getElementById("codex-signals").innerHTML = `
-    <p>Codex Listener Status: <span class="${color}">${status.toUpperCase()}</span></p>
-    <pre>${JSON.stringify(badge, null, 2)}</pre>
-  `;
+        document.getElementById("pr-list").innerHTML = html;
+
+        if (prs[0]) updateCodexChecks(prs[0].head.sha);
+
+    } catch (err) {
+        console.error("PR load error", err);
+        document.getElementById("pr-list").textContent = "Error loading PR list.";
+    }
 }
-loadCodexSignals();
-</script>
 
-<!-- ==================== RECENT COMMITS ==================== -->
-<div class="card">
-<h2>📡 Recent Commits (All Branches)</h2>
-<div id="commits">Loading...</div>
-</div>
+async function updateCodexChecks(sha) {
+    try {
+        const res = await fetch(CHECKS_URL(sha));
+        const data = await res.json();
 
-<script>
-async function loadCommits() {
-  const data = await gh(`https://api.github.com/repos/${REPO}/commits?per_page=20`);
+        if (!data.check_runs) {
+            document.getElementById("codex-checks").textContent = "No checks found.";
+            return;
+        }
 
-  let html = "";
-  data.forEach(c => {
-    html += `
-      <div>
-        <strong>${c.commit.message}</strong><br/>
-        <span>${c.commit.author.name} — ${new Date(c.commit.author.date).toLocaleString()}</span><br/>
-        <a href="${c.html_url}" target="_blank">View Commit</a>
-        <hr/>
-      </div>
-    `;
-  });
+        let text = "";
+        for (const c of data.check_runs) {
+            text += `${c.name}: ${c.conclusion || c.status}\n`;
+        }
 
-  document.getElementById("commits").innerHTML = html;
+        document.getElementById("codex-checks").textContent = text;
+
+    } catch (err) {
+        console.error("Checks load error", err);
+        document.getElementById("codex-checks").textContent = "Error loading Codex checks.";
+    }
 }
-loadCommits();
-</script>
 
-<!-- ==================== AUTO REFRESH ==================== -->
-<script>
+// Initial load
+updateCodexStatus();
+updatePRList();
+
+// Auto-refresh every 15 seconds
 setInterval(() => {
-  loadPRs();
-  loadWorkflows();
-  loadCodexSignals();
-  loadCommits();
-}, 15000); // refresh every 15s
+    updateCodexStatus();
+    updatePRList();
+}, 15000);
 </script>
 
 </body>
