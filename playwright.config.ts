@@ -1,53 +1,60 @@
 // playwright.config.ts
+import dotenv from "dotenv";
+dotenv.config({ path: ".env.local" });
+
 import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  outputDir: "tests/test-results", // <— this line
+  outputDir: "tests/test-results",
   timeout: 60 * 1000,
-  expect: {
-    timeout: 5000,
-  },
+  expect: { timeout: 5000 },
   fullyParallel: true,
-  retries: 0, // set to 1 or 2 for CI runs if needed
+  retries: 0,
+
   reporter: [
     ["list"],
     ["html", { open: "never", outputFolder: "tests/playwright-report" }],
   ],
-use: {
-  baseURL: process.env.BASE_URL || "http://localhost:3000",
-  storageState: "tests/.auth/state.json",
-  screenshot: "only-on-failure",
-  trace: "retain-on-failure",
-},
+
+  use: {
+    baseURL: process.env.BASE_URL || "http://localhost:3000",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+  },
+
+  webServer: {
+    command: "npm run dev",
+    url: "http://localhost:3000",
+    timeout: 120_000,
+    reuseExistingServer: !process.env.CI,
+  },
+
   projects: [
+    // 1) Setup project: runs setup.setup.ts AFTER web server is started
     {
-      name: "Public (Chromium)",
-      testMatch: ["**/*.spec.ts"],
+      name: "setup",
+      testMatch: "tests/setup/**/*.setup.ts",
       use: { ...devices["Desktop Chrome"] },
     },
+
+    // 2) Public tests
     {
-      name: "Private (Chromium)",
-      testMatch: ["**/*.spec.ts"],
+      name: "Public",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: "tests/e2e/public/**/*.spec.ts",
+      dependencies: ["setup"],
+    },
+
+    // 3) Private tests (need storage state)
+    {
+      name: "Private",
       use: {
         ...devices["Desktop Chrome"],
         storageState: "tests/.auth/state.json",
       },
-      dependencies: ["authSetup"],
-    },
-    {
-      name: "authSetup",
-      testMatch: /tests\/utils\/auth\.ts/,
-      use: { ...devices["Desktop Chrome"] },
+      testMatch: "tests/e2e/private/**/*.spec.ts",
+      dependencies: ["setup"],
     },
   ],
-
-  // Run dev server automatically when testing locally
-  webServer: {
-    command: "npm run dev",
-    url: "http://localhost:3000",
-    timeout: 120 * 1000,
-    reuseExistingServer: !process.env.CI,
-  },
 });
-
