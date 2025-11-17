@@ -1,17 +1,13 @@
-import { test, expect } from "../../utils/auth";
+import { test } from "../../utils/auth";
 
-/**
-* E2E test: workflow creation and persistence
-*/
-test("User can create and load a workflow", async ({ page }) => {
-  await page.goto("http://localhost:3000/login");
-  await page.waitForURL("http://localhost:3000/login");
-  await page.fill('input[name="email"]', "test@example.com");
-  await page.fill('input[name="password"]', "password");
-  await page.click("button[type=submit]");
+test.describe("Workflows Module", () => {
+  test("User can create and load workflow", async ({ authPage }) => {
+    await authPage.goto("/workflows");
 
-  await page.goto("http://localhost:3000/workflows");
-  await expect(page.getByText("Workflow Builder")).toBeVisible();
+    await authPage.getByRole("button", { name: /create workflow/i }).click();
+    await authPage.getByLabel("Workflow Name").fill("My Flow");
+    await authPage.click("button[type=submit]");
 
-  // TODO: once API live, simulate adding node + saving workflow
+    await expect(authPage.getByText("My Flow")).toBeVisible();
+  });
 });

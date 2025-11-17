@@ -1,9 +1,10 @@
-import { test, expect } from "../../utils/auth";
+import { test } from "../../utils/auth";
 
-test.describe("Private: Dashboard", () => {
-  test("should load dashboard for logged-in user", async ({ page }) => {
-    await page.goto("http://localhost:3000/dashboard");
-    await expect(page.getByRole("navigation")).toBeVisible();
-    await expect(page.getByText(/welcome/i)).toBeVisible();
+test.describe("Dashboard (Private)", () => {
+  test("loads successfully for authenticated user", async ({ authPage }) => {
+    await authPage.goto("/dashboard");
+
+    await expect(authPage.getByRole("navigation")).toBeVisible();
+    await expect(authPage.getByText(/welcome/i)).toBeVisible();
   });
 });

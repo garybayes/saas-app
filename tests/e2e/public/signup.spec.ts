@@ -1,8 +1,10 @@
-import { test, expect } from "../../utils/auth";
+import { test } from "../../utils/guest";
+import { expect } from "@playwright/test";
 
 test.describe("Public: Signup Page", () => {
-  test("should load signup form", async ({ page }) => {
-    await page.goto("http://localhost:3000/signup");
-    await expect(page.getByRole("button", { name: /create account/i })).toBeVisible();
+  test("loads signup form", async ({ guestPage }) => {
+    await guestPage.goto("/signup");
+
+    await expect(guestPage.getByRole("button", { name: /create account/i })).toBeVisible();
   });
 });
