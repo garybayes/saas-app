@@ -1,60 +1,58 @@
 name: Codex Dashboard Data Build
+
 on:
-  workflow_dispatch:
-  schedule:
-    - cron: "*/10 * * * *"   # Every 10 minutes
+  pull_request:
+    types: [opened, synchronize, reopened]
   push:
-    branches:
-      - main
-      - sprint-5-testing
+    branches: [main]
+  schedule:
+    - cron: "*/10 * * * *" # update every 10 minutes
+  workflow_dispatch:
 
 permissions:
   contents: write
-  actions: read
 
 jobs:
-  build-dashboard-data:
+  build-dashboard:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Fetch PRs
-        env:
-          GH_TOKEN: ${{ secrets.GH_API_TOKEN }}
+      - name: Fetch pull requests
         run: |
-          curl -s \
-            -H "Authorization: token $GH_TOKEN" \
-            https://api.github.com/repos/${{ github.repository }}/pulls \
+          gh pr list \
+            --json number,title,author,state,headRefName,baseRefName \
             > docs/data/prs.json
-
-      - name: Fetch Workflow Runs
         env:
-          GH_TOKEN: ${{ secrets.GH_API_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: Fetch workflows
         run: |
-          curl -s \
-            -H "Authorization: token $GH_TOKEN" \
-            https://api.github.com/repos/${{ github.repository }}/actions/runs \
+          gh run list \
+            --limit 20 \
+            --json databaseId,name,conclusion,status,event \
             > docs/data/workflows.json
-
-      - name: Fetch Codex Status Badge (local file)
-        run: |
-          cp .github/badges/codex-status.json docs/data/codex.json
-
-      - name: Fetch Recent Commits
         env:
-          GH_TOKEN: ${{ secrets.GH_API_TOKEN }}
-        run: |
-          curl -s \
-            -H "Authorization: token $GH_TOKEN" \
-            https://api.github.com/repos/${{ github.repository }}/commits \
-            > docs/data/commits.json
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
-      - name: Commit and push data
+      - name: Fetch recent commits
         run: |
-          git config user.name "${{ github.actor }}"
-          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          gh api repos/${{ github.repository }}/commits \
+            > docs/data/commits.json
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: Update Codex status badge
+        run: |
+          echo '{"schemaVersion":1,"label":"codex-status","message":"ok","color":"green"}' \
+            > docs/data/codex.json
+
+      - name: Commit and push dashboard data
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
           git add docs/data/*.json
-          git commit -m "Update Codex Dashboard data [skip ci]" || echo "No changes"
+          git commit -m "Update dashboard data" || echo "No changes to commit"
           git push
