@@ -1,6 +1,6 @@
 // tests/e2e/redirects.spec.ts
-import { test as guestTest, expect as guestExpect } from "../../playwright/helpers/guest";
-import { test as authTest, expect as authExpect } from "../../playwright/helpers/auth";
+import { test as guestTest, expect as guestExpect } from "../utils/guest";
+import { test as authTest, expect as authExpect } from "../utils/auth";
 
 const BASE_URL = process.env.BASE_URL || "http://localhost:3000";
 
