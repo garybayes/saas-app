@@ -1,0 +1,43 @@
+name: Deploy Codex Dashboard to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy-dashboard:
+    name: Publish Codex Dashboard
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # required for switching to gh-pages
+
+      - name: Prepare deployment folder
+        run: |
+          rm -rf out
+          mkdir -p out
+          cp docs/codex-dashboard.html out/index.html
+          mkdir -p out/data
+          cp docs/data/*.json out/data/
+
+          # Add build timestamp (visible in dashboard)
+          echo "{\"generated\":\"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}" > out/data/metadata.json
+
+          # Cache-bust by writing a version file
+          echo "v=$(date +%s)" > out/version.txt
+
+      - name: Deploy to gh-pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: out
+          clean: true   # cleans folder but not entire branch
+          single-commit: true   # prevents massive commit history
