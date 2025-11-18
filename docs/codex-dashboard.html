@@ -1,173 +1,892 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Codex Deployment Dashboard</title>
-<style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SAAS-APP — Codex + CI Monitoring Dashboard</title>
+
+  <style>
+    /* ======================================================
+     * THEME: System-based with manual override + smooth UX
+     * ====================================================== */
+
+    :root {
+      --bg-light: #ffffff;
+      --panel-light: #f4f4f8;
+      --text-light: #1a1a1a;
+      --subtext-light: #555;
+      --border-light: #ddd;
+
+      --bg-dark: #0d1117;
+      --panel-dark: #161b22;
+      --text-dark: #c9d1d9;
+      --subtext-dark: #8b949e;
+      --border-dark: #30363d;
+
+      --success: #3fb950;
+      --fail: #f85149;
+      --pending: #d29922;
+      --link-light: #0366d6;
+      --link-dark: #58a6ff;
+
+      --heat-low: rgba(63, 185, 80, 0.16);
+      --heat-med: rgba(210, 153, 34, 0.25);
+      --heat-high: rgba(248, 81, 73, 0.35);
+    }
+
+    /* System theme baseline */
+    body.system-light {
+      --bg: var(--bg-light);
+      --panel: var(--panel-light);
+      --text: var(--text-light);
+      --subtext: var(--subtext-light);
+      --border: var(--border-light);
+      --link: var(--link-light);
+    }
+
+    body.system-dark {
+      --bg: var(--bg-dark);
+      --panel: var(--panel-dark);
+      --text: var(--text-dark);
+      --subtext: var(--subtext-dark);
+      --border: var(--border-dark);
+      --link: var(--link-dark);
+    }
+
+    /* Manual overrides */
+    body.force-light {
+      --bg: var(--bg-light);
+      --panel: var(--panel-light);
+      --text: var(--text-light);
+      --subtext: var(--subtext-light);
+      --border: var(--border-light);
+      --link: var(--link-light);
+    }
+
+    body.force-dark {
+      --bg: var(--bg-dark);
+      --panel: var(--panel-dark);
+      --text: var(--text-dark);
+      --subtext: var(--subtext-dark);
+      --border: var(--border-dark);
+      --link: var(--link-dark);
+    }
+
+    /* ============== GLOBAL LAYOUT ============== */
+
     body {
-        font-family: Arial, sans-serif;
-        margin: 40px;
-        background: #f5f5f5;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        Helvetica, Arial, sans-serif;
+      transition: background 0.25s ease, color 0.25s ease;
     }
-    h1 {
-        color: #222;
+
+    header {
+      background: var(--panel);
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
     }
-    .card {
-        background: white;
-        padding: 20px;
-        margin-bottom: 20px;
-        border-radius: 8px;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+
+    .title-block {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
     }
-    .status {
-        font-size: 1.2em;
-        padding: 10px 15px;
-        display: inline-block;
-        border-radius: 6px;
-        font-weight: bold;
-        color: white;
+
+    .title {
+      font-size: 1.4rem;
+      font-weight: 600;
     }
-    .status-pending { background: #999; }
-    .status-running { background: #0275d8; }
-    .status-success { background: #5cb85c; }
-    .status-failed  { background: #d9534f; }
-    .status-stale   { background: #f0ad4e; }
+
+    .subtitle {
+      font-size: 0.85rem;
+      color: var(--subtext);
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .pill {
+      border-radius: 999px;
+      padding: 6px 14px;
+      border: 1px solid var(--border);
+      font-size: 0.8rem;
+      cursor: pointer;
+      background: transparent;
+      color: var(--text);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .pill span.dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #3fb950;
+      box-shadow: 0 0 6px rgba(63, 185, 80, 0.8);
+    }
+
+    .pill-secondary {
+      border-style: dashed;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 2fr 1.5fr;
+      gap: 16px;
+    }
+
+    .grid-1 {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 800px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel {
+      background: var(--panel);
+      padding: 16px 18px;
+      border-radius: 10px;
+      margin-bottom: 16px;
+      border: 1px solid var(--border);
+      box-sizing: border-box;
+    }
+
+    .panel h2 {
+      margin: 0 0 10px;
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .panel h2 .tag {
+      font-size: 0.55rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 2px 6px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--subtext);
+    }
+
+    .badge {
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-weight: 600;
+      color: white;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.85rem;
+    }
+
+    .badge.success { background: var(--success); }
+    .badge.fail { background: var(--fail); }
+    .badge.pending { background: var(--pending); }
+
+    .badge-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(0,0,0,0.2);
+    }
+
+    .small-muted {
+      font-size: 0.8rem;
+      color: var(--subtext);
+    }
+
+    a {
+      color: var(--link);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+
     pre {
-        background: #eee;
-        padding: 10px;
-        border-radius: 6px;
-        overflow-x: auto;
+      white-space: pre-wrap;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      overflow-x: auto;
+      background: transparent;
+      font-size: 0.8rem;
     }
-    .timestamp {
-        color: #666;
-        margin-top: 8px;
-        font-size: 0.9em;
+
+    /* ============== TIMELINE ============== */
+
+    .timeline {
+      border-left: 3px solid var(--border);
+      margin-left: 4px;
+      padding-left: 12px;
     }
-</style>
+
+    .timeline-entry {
+      margin-bottom: 10px;
+      padding-left: 4px;
+      position: relative;
+    }
+
+    .timeline-entry::before {
+      content: "";
+      position: absolute;
+      left: -14px;
+      top: 4px;
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--border);
+    }
+
+    .timeline-entry.success::before { background: var(--success); }
+    .timeline-entry.failure::before { background: var(--fail); }
+
+    .timeline-entry-title {
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+
+    .timeline-entry-meta {
+      font-size: 0.75rem;
+      color: var(--subtext);
+    }
+
+    /* ============== HEAT MAP / ROOT CAUSE ============== */
+
+    .heatmap-entry {
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      font-size: 0.85rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .heat-low { background: var(--heat-low); }
+    .heat-med { background: var(--heat-med); }
+    .heat-high { background: var(--heat-high); }
+
+    .heatmap-entry span.label {
+      flex: 1;
+    }
+
+    .heatmap-entry span.value {
+      font-variant-numeric: tabular-nums;
+      font-size: 0.8rem;
+      color: var(--subtext);
+    }
+
+    .root-tree {
+      font-size: 0.85rem;
+    }
+
+    .root-tree ul {
+      list-style: none;
+      padding-left: 12px;
+      margin: 0;
+    }
+
+    .root-tree li {
+      margin-bottom: 4px;
+    }
+
+    .root-chip {
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 0.75rem;
+      border: 1px solid var(--border);
+      color: var(--subtext);
+      margin-left: 4px;
+    }
+
+    /* ============== SPARKLINE ============== */
+
+    .sparkline-container {
+      width: 100%;
+      max-width: 320px;
+      height: 60px;
+    }
+
+    svg.sparkline {
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    .sparkline-axis {
+      stroke: var(--border);
+      stroke-width: 0.5;
+    }
+
+    .sparkline-path-success {
+      fill: none;
+      stroke: var(--success);
+      stroke-width: 1.6;
+    }
+
+    .sparkline-path-failure {
+      fill: none;
+      stroke: var(--fail);
+      stroke-width: 1.3;
+      stroke-dasharray: 3 3;
+    }
+
+    .sparkline-label {
+      font-size: 0.68rem;
+      fill: var(--subtext);
+    }
+
+    /* ============== DIFF VIEWER ============== */
+
+    .diff-file {
+      margin-bottom: 8px;
+    }
+
+    .diff-file-name {
+      font-weight: 500;
+      font-size: 0.85rem;
+    }
+
+    .diff-file-meta {
+      font-size: 0.78rem;
+      color: var(--subtext);
+    }
+
+    .diff-badge-add {
+      color: #16a34a;
+    }
+
+    .diff-badge-del {
+      color: #dc2626;
+      margin-left: 6px;
+    }
+
+    .diff-pr-title {
+      font-size: 0.85rem;
+      margin-bottom: 4px;
+    }
+
+    .diff-pr-block {
+      margin-bottom: 10px;
+    }
+
+    /* ============== REASONING PILL ============== */
+
+    .reasoning {
+      font-size: 0.82rem;
+      color: var(--subtext);
+      border-left: 3px solid var(--border);
+      padding-left: 10px;
+      margin-top: 8px;
+    }
+
+    .reason-tag {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--subtext);
+    }
+  </style>
 </head>
+
 <body>
+<header>
+  <div class="title-block">
+    <div class="title">🚀 SAAS-APP — Codex + CI Monitoring</div>
+    <div class="subtitle">Live-ish view of PR status, Codex signals, CI pipelines, Playwright, Prisma & TypeScript.</div>
+  </div>
+  <div class="controls">
+    <button class="pill" id="themeToggle">
+      🌓 Theme
+    </button>
+    <button class="pill pill-secondary" id="refreshNow">
+      <span class="dot"></span>
+      Live refresh (15s)
+    </button>
+  </div>
+</header>
 
-<h1>Codex Deployment Dashboard</h1>
+<div class="container">
 
-<div class="card">
-    <h2>Codex Status</h2>
-    <div id="codex-status" class="status status-pending">Loading...</div>
-    <div class="timestamp" id="last-updated"></div>
-</div>
+  <!-- TOP ROW: STATUS + TRENDS -->
+  <div class="grid">
+    <div class="panel">
+      <h2>
+        Codex Status
+        <span class="tag">overview</span>
+      </h2>
+      <div id="codexStatus"></div>
+      <div class="small-muted" id="timestamp"></div>
+      <div id="codexReason" class="reasoning"></div>
+    </div>
 
-<div class="card">
-    <h2>Active Pull Requests</h2>
-    <div id="pr-list">Loading...</div>
-</div>
+    <div class="panel">
+      <h2>
+        CI Health Trend
+        <span class="tag">sparkline</span>
+      </h2>
+      <div class="sparkline-container" id="sparklineContainer"></div>
+      <div class="small-muted" id="sparklineLegend">
+        Last N workflow runs (green = success, red = failure).
+      </div>
+    </div>
+  </div>
 
-<div class="card">
-    <h2>Codex Checks</h2>
-    <pre id="codex-checks">Loading...</pre>
+  <!-- SECOND ROW: PR + TIMELINE -->
+  <div class="grid">
+    <div class="panel">
+      <h2>
+        Active Pull Requests (Sprint 5)
+        <span class="tag">prs</span>
+      </h2>
+      <div id="prList"></div>
+    </div>
+
+    <div class="panel">
+      <h2>
+        CI Timeline
+        <span class="tag">recent runs</span>
+      </h2>
+      <div id="timeline" class="timeline"></div>
+    </div>
+  </div>
+
+  <!-- THIRD ROW: HEATMAP + ROOT CAUSE -->
+  <div class="grid">
+    <div class="panel">
+      <h2>
+        Workflow Heat Map
+        <span class="tag">failure density</span>
+      </h2>
+      <div id="heatmap"></div>
+    </div>
+
+    <div class="panel">
+      <h2>
+        Error Root-Cause Tree
+        <span class="tag">prisma / tests / ts</span>
+      </h2>
+      <div id="rootCauseTree" class="root-tree"></div>
+    </div>
+  </div>
+
+  <!-- FOURTH ROW: RAW CHECKS + DIFFS -->
+  <div class="grid-1">
+    <div class="panel">
+      <h2>
+        Codex Checks (Raw)
+        <span class="tag">debug</span>
+      </h2>
+      <pre id="checksBox"></pre>
+    </div>
+
+    <div class="panel">
+      <h2>
+        PR File Changes (Summary)
+        <span class="tag">diff viewer</span>
+      </h2>
+      <pre id="diffSummary"></pre>
+    </div>
+  </div>
 </div>
 
 <script>
-// ---- CONFIG ----
-const OWNER = "garybayes";
-const REPO  = "saas-app";
-const STATUS_URL = `https://raw.githubusercontent.com/${OWNER}/${REPO}/main/.github/badges/codex-status.json`;
-const PRS_URL = `https://api.github.com/repos/${OWNER}/${REPO}/pulls`;
-const CHECKS_URL = (pr) => `https://api.github.com/repos/${OWNER}/${REPO}/commits/${pr}/check-runs`;
+/* ========================== THEME HANDLING ========================== */
 
-function statusClass(status) {
-    switch((status || "").toLowerCase()) {
-        case "running": return "status-running";
-        case "success": return "status-success";
-        case "failed":  return "status-failed";
-        case "stale":   return "status-stale";
-        default:        return "status-pending";
-    }
+function applySystemTheme() {
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  document.body.classList.remove("system-light", "system-dark");
+  document.body.classList.add(prefersDark ? "system-dark" : "system-light");
 }
 
-async function updateCodexStatus() {
-    try {
-        const res = await fetch(STATUS_URL);
-        const data = await res.json();
-
-        let status = data.message || "unknown";
-
-        const el = document.getElementById("codex-status");
-        el.textContent = status.toUpperCase();
-        el.className = "status " + statusClass(status);
-
-        document.getElementById("last-updated").textContent =
-            "Last Updated: " + new Date().toLocaleString();
-
-    } catch (err) {
-        console.error("Status load error", err);
-        document.getElementById("codex-status").textContent = "ERROR";
-    }
+function toggleTheme() {
+  if (document.body.classList.contains("force-dark")) {
+    document.body.classList.remove("force-dark");
+    document.body.classList.add("force-light");
+  } else if (document.body.classList.contains("force-light")) {
+    document.body.classList.remove("force-light");
+    applySystemTheme(); // back to system
+  } else {
+    document.body.classList.add("force-dark");
+  }
 }
 
-async function updatePRList() {
-    try {
-        const res = await fetch(PRS_URL);
-        const prs = await res.json();
+document.getElementById("themeToggle").addEventListener("click", toggleTheme);
+applySystemTheme();
 
-        if (!prs.length) {
-            document.getElementById("pr-list").innerHTML = "<p>No open pull requests.</p>";
-            return;
-        }
+/* ========================== DATA HELPERS ========================== */
 
-        let html = "<ul>";
-        for (const pr of prs) {
-            html += `
-                <li>
-                    <strong>#${pr.number}</strong> — ${pr.title}<br>
-                    <a href="${pr.html_url}" target="_blank">Open PR</a>
-                </li>
-                <br>
-            `;
-        }
-        html += "</ul>";
-
-        document.getElementById("pr-list").innerHTML = html;
-
-        if (prs[0]) updateCodexChecks(prs[0].head.sha);
-
-    } catch (err) {
-        console.error("PR load error", err);
-        document.getElementById("pr-list").textContent = "Error loading PR list.";
-    }
+async function loadJSON(path) {
+  try {
+    const res = await fetch(path + "?t=" + Date.now());
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
 }
 
-async function updateCodexChecks(sha) {
-    try {
-        const res = await fetch(CHECKS_URL(sha));
-        const data = await res.json();
+/* ========================== SPARKLINE RENDER ========================== */
 
-        if (!data.check_runs) {
-            document.getElementById("codex-checks").textContent = "No checks found.";
-            return;
-        }
+function renderSparkline(container, workflows) {
+  container.innerHTML = "";
 
-        let text = "";
-        for (const c of data.check_runs) {
-            text += `${c.name}: ${c.conclusion || c.status}\n`;
-        }
+  if (!workflows || workflows.length < 2) {
+    container.innerHTML = '<span class="small-muted">Not enough workflow history yet.</span>';
+    return;
+  }
 
-        document.getElementById("codex-checks").textContent = text;
+  const maxPoints = 24;
+  const slice = workflows.slice(-maxPoints);
+  const values = slice.map(w => {
+    const c = (w.conclusion || "").toLowerCase();
+    if (c === "success") return 1;
+    if (c === "failure") return 0;
+    return 0.5;
+  });
 
-    } catch (err) {
-        console.error("Checks load error", err);
-        document.getElementById("codex-checks").textContent = "Error loading Codex checks.";
+  const n = values.length;
+  const width = 260;
+  const height = 40;
+  const dx = n > 1 ? width / (n - 1) : width;
+
+  const yScale = v => height - 4 - v * (height - 8);
+
+  // Success path (1 for success, NaN for others) -> we only draw for success
+  let successPath = "";
+  let failurePath = "";
+
+  values.forEach((v, i) => {
+    const x = i * dx;
+    const y = yScale(v);
+    const cmd = i === 0 ? "M" : "L";
+
+    const c = (slice[i].conclusion || "").toLowerCase();
+    if (c === "success") {
+      successPath += `${cmd}${x},${y} `;
+    } else if (c === "failure") {
+      failurePath += `${cmd}${x},${y} `;
     }
+  });
+
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("class", "sparkline");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  // Baseline axis
+  const axis = document.createElementNS(svgNS, "line");
+  axis.setAttribute("x1", "0");
+  axis.setAttribute("y1", yScale(0.5));
+  axis.setAttribute("x2", String(width));
+  axis.setAttribute("y2", yScale(0.5));
+  axis.setAttribute("class", "sparkline-axis");
+  svg.appendChild(axis);
+
+  if (successPath) {
+    const p = document.createElementNS(svgNS, "path");
+    p.setAttribute("d", successPath.trim());
+    p.setAttribute("class", "sparkline-path-success");
+    svg.appendChild(p);
+  }
+
+  if (failurePath) {
+    const p = document.createElementNS(svgNS, "path");
+    p.setAttribute("d", failurePath.trim());
+    p.setAttribute("class", "sparkline-path-failure");
+    svg.appendChild(p);
+  }
+
+  // Small text labels
+  const labelSuccess = document.createElementNS(svgNS, "text");
+  labelSuccess.textContent = "success";
+  labelSuccess.setAttribute("x", 4);
+  labelSuccess.setAttribute("y", 10);
+  labelSuccess.setAttribute("class", "sparkline-label");
+  svg.appendChild(labelSuccess);
+
+  const labelFail = document.createElementNS(svgNS, "text");
+  labelFail.textContent = "failure";
+  labelFail.setAttribute("x", 4);
+  labelFail.setAttribute("y", height - 4);
+  labelFail.setAttribute("class", "sparkline-label");
+  svg.appendChild(labelFail);
+
+  container.appendChild(svg);
 }
 
-// Initial load
-updateCodexStatus();
-updatePRList();
+/* ========================== ROOT CAUSE TREE ========================== */
 
-// Auto-refresh every 15 seconds
-setInterval(() => {
-    updateCodexStatus();
-    updatePRList();
-}, 15000);
+function buildRootCause(workflows) {
+  const buckets = {
+    "Database & Prisma": { total: 0, fail: 0 },
+    "E2E / Playwright": { total: 0, fail: 0 },
+    "TypeScript / Compile": { total: 0, fail: 0 },
+    "Other": { total: 0, fail: 0 },
+  };
+
+  (workflows || []).forEach(w => {
+    const name = (w.name || "").toLowerCase();
+    let key = "Other";
+    if (name.includes("prisma")) key = "Database & Prisma";
+    else if (name.includes("playwright") || name.includes("e2e")) key = "E2E / Playwright";
+    else if (name.includes("typescript") || name.includes("compile")) key = "TypeScript / Compile";
+
+    buckets[key].total += 1;
+    if ((w.conclusion || "").toLowerCase() === "failure") {
+      buckets[key].fail += 1;
+    }
+  });
+
+  return buckets;
+}
+
+function renderRootCause(container, buckets) {
+  container.innerHTML = "";
+  const totalRuns = Object.values(buckets).reduce((sum, b) => sum + b.total, 0);
+
+  if (!totalRuns) {
+    container.innerHTML = '<span class="small-muted">No workflow history yet.</span>';
+    return;
+  }
+
+  const ul = document.createElement("ul");
+
+  Object.entries(buckets).forEach(([key, b]) => {
+    const li = document.createElement("li");
+    const failRate = b.total ? (b.fail / b.total) : 0;
+    const intensity =
+      failRate === 0 ? "heat-low" :
+      failRate < 0.4 ? "heat-med" :
+      "heat-high";
+
+    li.innerHTML =
+      `<span>${key}</span>` +
+      `<span class="root-chip ${intensity}">` +
+      `fails: ${b.fail} / ${b.total} (${Math.round(failRate * 100)}%)</span>`;
+    ul.appendChild(li);
+  });
+
+  container.appendChild(ul);
+}
+
+/* ========================== MAIN DASHBOARD LOAD ========================== */
+
+async function loadDashboard() {
+  const [codex, prs, workflows, commits, diffs] = await Promise.all([
+    loadJSON("./data/codex.json"),
+    loadJSON("./data/prs.json"),
+    loadJSON("./data/workflows.json"),
+    loadJSON("./data/commits.json"),
+    loadJSON("./data/diffs.json"), // optional; may be null
+  ]);
+
+  /* ----- STATUS BADGE ----- */
+  const statusEl = document.getElementById("codexStatus");
+  statusEl.innerHTML = "";
+  if (codex?.message) {
+    const m = String(codex.message);
+    const c = m.toLowerCase();
+    const cls = c.includes("fail") || c.includes("error")
+      ? "fail"
+      : c.includes("success") || c.includes("pass")
+      ? "success"
+      : "pending";
+
+    statusEl.innerHTML =
+      `<span class="badge ${cls}">` +
+      `<span class="badge-dot"></span>${m}` +
+      `</span>`;
+  } else {
+    statusEl.innerHTML =
+      '<span class="small-muted">No Codex status badge yet.</span>';
+  }
+
+  document.getElementById("timestamp").innerText =
+    "Last Updated: " + new Date().toLocaleString();
+
+  /* ----- CODEx REASONING (if any extra fields in codex.json) ----- */
+  const reasonEl = document.getElementById("codexReason");
+  reasonEl.innerHTML = "";
+  const reasoning =
+    codex?.reason ||
+    codex?.details ||
+    codex?.checks ||
+    codex?.note;
+
+  if (reasoning) {
+    const snippet =
+      typeof reasoning === "string"
+        ? reasoning
+        : JSON.stringify(reasoning, null, 2);
+    reasonEl.innerHTML =
+      `<div class="reason-tag">codex reasoning</div>${snippet}`;
+  } else {
+    reasonEl.innerHTML =
+      '<span class="small-muted">No Codex reasoning payload detected yet.</span>';
+  }
+
+  /* ----- PR LIST ----- */
+  const prList = document.getElementById("prList");
+  prList.innerHTML = "";
+  if (prs && prs.length) {
+    prs.forEach(pr => {
+      prList.innerHTML += `
+        <div style="margin-bottom:8px">
+          <strong>#${pr.number}</strong> — ${pr.title || "Untitled PR"}<br/>
+          <span class="small-muted">Author: ${pr.user || "unknown"}</span><br/>
+          <a href="${pr.url}" target="_blank">Open PR</a>
+        </div>
+      `;
+    });
+  } else {
+    prList.innerHTML =
+      '<span class="small-muted">No open PRs found for Sprint 5.</span>';
+  }
+
+  /* ----- CI TIMELINE ----- */
+  const timeline = document.getElementById("timeline");
+  timeline.innerHTML = "";
+  if (workflows && workflows.length) {
+    workflows.slice(0, 12).forEach(w => {
+      const cls = (w.conclusion || "").toLowerCase();
+      const when = w.run_started_at
+        ? new Date(w.run_started_at).toLocaleString()
+        : (w.created_at ? new Date(w.created_at).toLocaleString() : "");
+      timeline.innerHTML += `
+        <div class="timeline-entry ${cls}">
+          <div class="timeline-entry-title">${w.name}</div>
+          <div class="timeline-entry-meta">
+            ${w.event || "workflow"} • ${w.conclusion || "unknown"}${when ? " • " + when : ""}
+          </div>
+        </div>
+      `;
+    });
+  } else {
+    timeline.innerHTML =
+      '<span class="small-muted">No workflow runs captured yet.</span>';
+  }
+
+  /* ----- SPARKLINE ----- */
+  const sparklineContainer = document.getElementById("sparklineContainer");
+  renderSparkline(sparklineContainer, workflows || []);
+
+  /* ----- HEATMAP ----- */
+  const heatmap = document.getElementById("heatmap");
+  heatmap.innerHTML = "";
+  if (workflows && workflows.length) {
+    // Count failures per workflow name
+    const byName = {};
+    workflows.forEach(w => {
+      const key = w.name || "Unnamed Workflow";
+      if (!byName[key]) byName[key] = { total: 0, fail: 0 };
+      byName[key].total += 1;
+      if ((w.conclusion || "").toLowerCase() === "failure") {
+        byName[key].fail += 1;
+      }
+    });
+
+    Object.entries(byName)
+      .sort((a, b) => b[1].fail - a[1].fail)
+      .forEach(([name, stats]) => {
+        const rate = stats.total ? stats.fail / stats.total : 0;
+        const cls =
+          stats.fail === 0 ? "heat-low" :
+          rate < 0.4 ? "heat-med" :
+          "heat-high";
+
+        heatmap.innerHTML += `
+          <div class="heatmap-entry ${cls}">
+            <span class="label">${name}</span>
+            <span class="value">${stats.fail} / ${stats.total} failed</span>
+          </div>
+        `;
+      });
+  } else {
+    heatmap.innerHTML =
+      '<span class="small-muted">No workflows to map yet.</span>';
+  }
+
+  /* ----- ROOT CAUSE TREE ----- */
+  const rootBuckets = buildRootCause(workflows || []);
+  const rootContainer = document.getElementById("rootCauseTree");
+  renderRootCause(rootContainer, rootBuckets);
+
+  /* ----- RAW CHECKS BOX ----- */
+  const checks = document.getElementById("checksBox");
+  if (workflows && workflows.length) {
+    checks.textContent = workflows
+      .map(w => `${w.name}: ${w.conclusion}`)
+      .join("\n");
+  } else {
+    checks.textContent = "No workflow data loaded.";
+  }
+
+  /* ----- DIFF SUMMARY (optional diffs.json) ----- */
+  const diffBox = document.getElementById("diffSummary");
+  diffBox.textContent = "";
+  if (diffs && diffs.length) {
+    const lines = [];
+    diffs.slice(0, 5).forEach(prDiff => {
+      lines.push(`PR #${prDiff.number} — ${prDiff.title || "Untitled PR"}`);
+      (prDiff.files || []).forEach(f => {
+        const add = f.additions ?? 0;
+        const del = f.deletions ?? 0;
+        lines.push(
+          `  • ${f.filename}   +${add}  -${del}`
+        );
+      });
+      lines.push("");
+    });
+    diffBox.textContent = lines.join("\n");
+  } else {
+    diffBox.textContent =
+      "No diff data available.\n\n" +
+      "Tip: You can extend the GitHub Actions Codex dashboard workflow to " +
+      "write docs/data/diffs.json with PR file summaries " +
+      "(number, title, files[{filename, additions, deletions}]).";
+  }
+}
+
+/* Initial load + auto refresh */
+
+loadDashboard();
+
+document.getElementById("refreshNow").addEventListener("click", loadDashboard);
+
+// “Real-time” feel: poll every 15 seconds.
+// (If you later add a webhook-powered JSON writer that updates more often,
+// this page will automatically keep up.)
+setInterval(loadDashboard, 15000);
 </script>
-
 </body>
 </html>
