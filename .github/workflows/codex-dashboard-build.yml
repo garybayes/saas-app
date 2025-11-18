@@ -1,0 +1,96 @@
+name: Codex Dashboard Data Build
+run-name: Update Codex Dashboard Data
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"   # Update every 5 minutes
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  build-dashboard:
+    name: Build Dashboard Data
+    runs-on: ubuntu-latest
+
+    steps:
+      # -------------------------------
+      # 1. Checkout gh-pages branch
+      #    If missing, GitHub creates it automatically.
+      # -------------------------------
+      - name: Checkout GH Pages branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          fetch-depth: 0
+
+      # -------------------------------
+      # 2. Ensure directories exist
+      # -------------------------------
+      - name: Create dashboard data folders
+        run: |
+          mkdir -p docs/data
+
+      # -------------------------------
+      # 3. Fetch GitHub PRs, Workflows, and Commits
+      # -------------------------------
+      - name: Fetch PRs
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/pulls \
+            --paginate \
+            --jq '.' > docs/data/prs.json
+
+      - name: Fetch Workflows
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/actions/runs \
+            --paginate \
+            --jq '.' > docs/data/workflows.json
+
+      - name: Fetch Recent Commits
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/commits \
+            --paginate \
+            --jq '.' > docs/data/commits.json
+
+      # -------------------------------
+      # 4. Build Codex Status indicator
+      # -------------------------------
+      - name: Compute Codex Status
+        run: |
+          STATUS="ok"
+          COLOR="yellow"
+          MESSAGE="No Codex reasoning payload detected."
+
+          echo "{\"status\":\"$STATUS\",\"color\":\"$COLOR\",\"message\":\"$MESSAGE\",\"updated\":\"$(date -u)\"}" \
+            > docs/data/codex.json
+
+      # -------------------------------
+      # 5. Commit updated dashboard data
+      # -------------------------------
+      - name: Commit dashboard updates
+        run: |
+          git config user.email "codex-bot@users.noreply.github.com"
+          git config user.name "codex-bot"
+          git add docs/data/*.json || true
+          git add docs/codex-dashboard.html || true
+
+          if git diff --cached --quiet; then
+            echo "No changes detected — skipping commit."
+          else
+            git commit -m "Update Codex Dashboard data ($(date -u))"
+          fi
+
+      # -------------------------------
+      # 6. Push changes to gh-pages
+      # -------------------------------
+      - name: Push to GH Pages
+        run: git push origin gh-pages
+
