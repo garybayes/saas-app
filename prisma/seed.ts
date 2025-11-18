@@ -1,30 +1,44 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { webcrypto } from "crypto"; // Web Crypto for Node
 
-// --- Inline AES-GCM Encryption (matches src/lib/crypto.ts) ---
-const ENCRYPTION_KEY = Buffer.from(
-  process.env.ENCRYPTION_KEY || "",
-  "base64"
-);
-
-function encrypt(plaintext: string): string {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const cipher = crypto.createCipheriv("aes-256-gcm", ENCRYPTION_KEY, iv);
-
-  const encrypted = Buffer.concat([
-    cipher.update(plaintext, "utf8"),
-    cipher.final(),
-  ]);
-
-  const tag = cipher.getAuthTag();
-
-  return Buffer.from(
-    Buffer.concat([iv, tag, encrypted])
-  ).toString("base64");
-}
-// --------------------------------------------------------------
-
+const crypto = webcrypto;
 const prisma = new PrismaClient();
+
+const ENCRYPTION_KEY_B64 = process.env.ENCRYPTION_KEY;
+if (!ENCRYPTION_KEY_B64) {
+  throw new Error("ENCRYPTION_KEY missing in environment");
+}
+const ENCRYPTION_KEY = Buffer.from(ENCRYPTION_KEY_B64, "base64");
+
+// Convert raw key into a CryptoKey
+async function getCryptoKey() {
+  return crypto.subtle.importKey(
+    "raw",
+    ENCRYPTION_KEY,
+    "AES-GCM",
+    false,
+    ["encrypt"]
+  );
+}
+
+async function encrypt(plaintext: string): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await getCryptoKey();
+
+  const encoded = new TextEncoder().encode(plaintext);
+
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    encoded
+  );
+
+  const encryptedBytes = Buffer.from(ciphertext);
+  const result = Buffer.concat([Buffer.from(iv), encryptedBytes]);
+
+  return result.toString("base64");
+}
 
 async function main() {
   console.log("🌱 Seeding PostgreSQL test data...");
@@ -43,24 +57,24 @@ async function main() {
     },
   });
 
-  // Create connections
+  // Create demo connections
   await prisma.connection.createMany({
     data: [
       {
         userId: user.id,
         appName: "Slack",
-        apiKey: encrypt("slack-test-key"),
+        apiKey: await encrypt("slack-test-key")
       },
       {
         userId: user.id,
         appName: "Notion",
-        apiKey: encrypt("notion-test-key"),
-      },
+        apiKey: await encrypt("notion-test-key")
+      }
     ],
     skipDuplicates: true,
   });
 
-  console.log("✅ Seed complete.");
+  console.log("✅ Seeding complete.");
 }
 
 main()
