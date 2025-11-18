@@ -1,6 +1,7 @@
 // tests/e2e/redirects.spec.ts
-import { test as guestTest, expect as guestExpect } from "../utils/guest";
-import { test as authTest, expect as authExpect } from "../utils/auth";
+import { test as expect } from "@playwright/test";
+import { test as guestTest } from "../utils/guest";
+import { test as authTest } from "../utils/auth";
 
 const BASE_URL = process.env.BASE_URL || "http://localhost:3000";
 
@@ -10,7 +11,7 @@ guestTest.describe("Guest access control", () => {
   for (const route of privateRoutes) {
     guestTest(`unauthenticated users are redirected from ${route}`, async ({ guestPage }) => {
       await guestPage.goto(`${BASE_URL}${route}`);
-      await guestExpect(guestPage).toHaveURL(/\/login$/);
+      await expect(guestPage).toHaveURL(/\/login$/);
     });
   }
 });
@@ -21,7 +22,7 @@ authTest.describe("Authenticated route control", () => {
   for (const route of publicRoutes) {
     authTest(`authenticated users cannot access ${route}`, async ({ authPage }) => {
       await authPage.goto(`${BASE_URL}${route}`);
-      await authExpect(authPage.url()).toMatch(/dashboard|connections|workflows/);
+      await expect(authPage.url()).toMatch(/dashboard|connections|workflows/);
     });
   }
 });
