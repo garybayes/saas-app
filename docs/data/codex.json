@@ -1,1 +1,1 @@
-{"schemaVersion":1,"label":"codex-status","message":"ok","color":"green"}
+{"status":"initializing","color":"lightgrey","message":"Waiting for first build"}
