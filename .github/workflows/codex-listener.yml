@@ -1,0 +1,16 @@
+name: Codex Listener
+
+on:
+  repository_dispatch:
+    types: [codex-rebuild]
+
+jobs:
+  run-codex:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Echo receipt
+        run: echo "Codex rebuild trigger received for branch ${{ github.event.client_payload.branch }}"

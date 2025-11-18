@@ -1,0 +1,31 @@
+name: Codex Dashboard Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build-dashboard:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate dashboard data
+        run: |
+          mkdir -p docs/data
+          echo '{}' > docs/data/codex.json
+          echo '{}' > docs/data/commits.json
+          echo '{}' > docs/data/workflows.json
+          echo '{}' > docs/data/prs.json
+
+      - name: Commit updates
+        run: |
+          git config --global user.name "codex-dashboard-bot"
+          git config --global user.email "codex-bot@users.noreply.github.com"
+          git add docs/data || true
+          git commit -m "Dashboard data update" || echo "No changes"
+          git push origin HEAD:${GITHUB_REF#refs/heads/}
