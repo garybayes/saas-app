@@ -9,6 +9,9 @@ on:
     branches:
       - 'sprint-*-development'
 
+env:
+  DATABASE_URL: "file:./dev.db"
+
 jobs:
   prisma:
     runs-on: ubuntu-latest
