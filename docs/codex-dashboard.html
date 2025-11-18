@@ -1,201 +1,172 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="auto">
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Codex Dashboard</title>
-
-  <!-- System Dark/Light Mode + Manual Override Ready -->
-  <style>
-    :root {
-      --bg: #ffffff;
-      --card: #f2f2f2;
-      --text: #111;
-      --accent: #0366d6;
-      --border: #e0e0e0;
-    }
-
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #111;
-        --card: #1a1a1a;
-        --text: #eaeaea;
-        --accent: #58a6ff;
-        --border: #333;
-      }
-    }
-
+<meta charset="UTF-8">
+<title>Codex Deployment Dashboard</title>
+<style>
     body {
-      margin: 0;
-      padding: 1rem;
-      font-family: system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--text);
+        font-family: Arial, sans-serif;
+        margin: 40px;
+        background: #f5f5f5;
     }
-
     h1 {
-      margin-top: 0;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
+        color: #222;
     }
-
-    .status-led {
-      width: 14px;
-      height: 14px;
-      border-radius: 50%;
-      border: 2px solid var(--border);
-      display: inline-block;
-    }
-
-    .led-passing { background: #28a745; }
-    .led-failed { background: #d73a49; }
-    .led-pending { background: #d29922; }
-
     .card {
-      background: var(--card);
-      padding: 1rem;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      margin-bottom: 1rem;
+        background: white;
+        padding: 20px;
+        margin-bottom: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
     }
-
-    /* Mobile-first collapsible sections */
-    details {
-      margin-bottom: 1rem;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      background: var(--card);
+    .status {
+        font-size: 1.2em;
+        padding: 10px 15px;
+        display: inline-block;
+        border-radius: 6px;
+        font-weight: bold;
+        color: white;
     }
-    summary {
-      padding: 0.75rem;
-      cursor: pointer;
-      font-weight: bold;
-      color: var(--accent);
+    .status-pending { background: #999; }
+    .status-running { background: #0275d8; }
+    .status-success { background: #5cb85c; }
+    .status-failed  { background: #d9534f; }
+    .status-stale   { background: #f0ad4e; }
+    pre {
+        background: #eee;
+        padding: 10px;
+        border-radius: 6px;
+        overflow-x: auto;
     }
-    details > div {
-      padding: 0.75rem;
-    }
-
-    @media (min-width: 700px) {
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-        gap: 1rem;
-      }
-    }
-
     .timestamp {
-      opacity: 0.7;
-      font-size: 0.85rem;
-      margin-top: -0.5rem;
-      margin-bottom: 1rem;
+        color: #666;
+        margin-top: 8px;
+        font-size: 0.9em;
     }
-  </style>
+</style>
 </head>
-
 <body>
-  <h1>
-    Codex Dashboard
-    <span id="status-led" class="status-led led-pending"></span>
-  </h1>
 
-  <div class="timestamp" id="last-update">Loading...</div>
+<h1>Codex Deployment Dashboard</h1>
 
-  <div class="grid">
+<div class="card">
+    <h2>Codex Status</h2>
+    <div id="codex-status" class="status status-pending">Loading...</div>
+    <div class="timestamp" id="last-updated"></div>
+</div>
 
-    <!-- Latest Workflows -->
-    <details open>
-      <summary>Workflow Status</summary>
-      <div id="workflow-section">Loading...</div>
-    </details>
+<div class="card">
+    <h2>Active Pull Requests</h2>
+    <div id="pr-list">Loading...</div>
+</div>
 
-    <!-- Recent PRs -->
-    <details>
-      <summary>Pull Requests</summary>
-      <div id="pr-section">Loading...</div>
-    </details>
-
-    <!-- Recent Commits -->
-    <details>
-      <summary>Recent Commits</summary>
-      <div id="commit-section">Loading...</div>
-    </details>
-
-  </div>
+<div class="card">
+    <h2>Codex Checks</h2>
+    <pre id="codex-checks">Loading...</pre>
+</div>
 
 <script>
-/* ----------------------- CONFIG ----------------------- */
-const REFRESH_INTERVAL = 30000; // 30 seconds
-const DATA_PATH = "/data";
-const FILES = {
-  codex: `${DATA_PATH}/codex.json`,
-  prs: `${DATA_PATH}/prs.json`,
-  workflows: `${DATA_PATH}/workflows.json`,
-  commits: `${DATA_PATH}/commits.json`,
-  metadata: `${DATA_PATH}/metadata.json`,
-};
+// ---- CONFIG ----
+const OWNER = "garybayes";
+const REPO  = "saas-app";
+const STATUS_URL = `https://raw.githubusercontent.com/${OWNER}/${REPO}/main/.github/badges/codex-status.json`;
+const PRS_URL = `https://api.github.com/repos/${OWNER}/${REPO}/pulls`;
+const CHECKS_URL = (pr) => `https://api.github.com/repos/${OWNER}/${REPO}/commits/${pr}/check-runs`;
 
-/* -------------------- LED Status Mapping -------------------- */
-function setStatusLED(status) {
-  const led = document.getElementById("status-led");
-  led.className = "status-led";
-
-  if (status === "passing") led.classList.add("led-passing");
-  else if (status === "failed") led.classList.add("led-failed");
-  else led.classList.add("led-pending");
+function statusClass(status) {
+    switch((status || "").toLowerCase()) {
+        case "running": return "status-running";
+        case "success": return "status-success";
+        case "failed":  return "status-failed";
+        case "stale":   return "status-stale";
+        default:        return "status-pending";
+    }
 }
 
-/* ------------------- Rendering Helpers ------------------- */
-function renderList(data, formatter) {
-  if (!data || data.length === 0) return "<em>No entries</em>";
-  return "<ul>" + data.map(formatter).join("") + "</ul>";
+async function updateCodexStatus() {
+    try {
+        const res = await fetch(STATUS_URL);
+        const data = await res.json();
+
+        let status = data.message || "unknown";
+
+        const el = document.getElementById("codex-status");
+        el.textContent = status.toUpperCase();
+        el.className = "status " + statusClass(status);
+
+        document.getElementById("last-updated").textContent =
+            "Last Updated: " + new Date().toLocaleString();
+
+    } catch (err) {
+        console.error("Status load error", err);
+        document.getElementById("codex-status").textContent = "ERROR";
+    }
 }
 
-/* ------------------------- Load All Data ------------------------- */
-async function loadDashboard() {
-  try {
-    const [codex, prs, workflows, commits, metadata] = await Promise.all([
-      fetch(FILES.codex).then(r => r.json()).catch(() => null),
-      fetch(FILES.prs).then(r => r.json()).catch(() => []),
-      fetch(FILES.workflows).then(r => r.json()).catch(() => []),
-      fetch(FILES.commits).then(r => r.json()).catch(() => []),
-      fetch(FILES.metadata).then(r => r.json()).catch(() => ({ generated: "unknown" }))
-    ]);
+async function updatePRList() {
+    try {
+        const res = await fetch(PRS_URL);
+        const prs = await res.json();
 
-    /* Update LED */
-    if (codex && codex.message) setStatusLED(codex.message);
+        if (!prs.length) {
+            document.getElementById("pr-list").innerHTML = "<p>No open pull requests.</p>";
+            return;
+        }
 
-    /* Update timestamp */
-    document.getElementById("last-update").textContent =
-      "Last updated: " + metadata.generated;
+        let html = "<ul>";
+        for (const pr of prs) {
+            html += `
+                <li>
+                    <strong>#${pr.number}</strong> — ${pr.title}<br>
+                    <a href="${pr.html_url}" target="_blank">Open PR</a>
+                </li>
+                <br>
+            `;
+        }
+        html += "</ul>";
 
-    /* Workflows */
-    document.getElementById("workflow-section").innerHTML = renderList(
-      workflows,
-      w => `<li><strong>${w.name}</strong>: ${w.conclusion}</li>`
-    );
+        document.getElementById("pr-list").innerHTML = html;
 
-    /* PRs */
-    document.getElementById("pr-section").innerHTML = renderList(
-      prs,
-      pr => `<li>#${pr.number} — ${pr.title} (${pr.state})</li>`
-    );
+        if (prs[0]) updateCodexChecks(prs[0].head.sha);
 
-    /* Commits */
-    document.getElementById("commit-section").innerHTML = renderList(
-      commits,
-      c => `<li>${c.sha.slice(0, 7)} — ${c.message}</li>`
-    );
-
-  } catch (err) {
-    console.error("Dashboard data load failed:", err);
-  }
+    } catch (err) {
+        console.error("PR load error", err);
+        document.getElementById("pr-list").textContent = "Error loading PR list.";
+    }
 }
 
-/* ----------------------- Auto Refresh ----------------------- */
-loadDashboard();
-setInterval(loadDashboard, REFRESH_INTERVAL);
+async function updateCodexChecks(sha) {
+    try {
+        const res = await fetch(CHECKS_URL(sha));
+        const data = await res.json();
+
+        if (!data.check_runs) {
+            document.getElementById("codex-checks").textContent = "No checks found.";
+            return;
+        }
+
+        let text = "";
+        for (const c of data.check_runs) {
+            text += `${c.name}: ${c.conclusion || c.status}\n`;
+        }
+
+        document.getElementById("codex-checks").textContent = text;
+
+    } catch (err) {
+        console.error("Checks load error", err);
+        document.getElementById("codex-checks").textContent = "Error loading Codex checks.";
+    }
+}
+
+// Initial load
+updateCodexStatus();
+updatePRList();
+
+// Auto-refresh every 15 seconds
+setInterval(() => {
+    updateCodexStatus();
+    updatePRList();
+}, 15000);
 </script>
 
 </body>

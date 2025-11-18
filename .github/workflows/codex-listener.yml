@@ -1,16 +1,24 @@
-name: Codex Listener
+name: Codex Rebuild Listener
 
 on:
   repository_dispatch:
     types: [codex-rebuild]
 
 jobs:
-  run-codex:
+  codex-rebuild:
+    name: Start Codex Rebuild
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Echo receipt
-        run: echo "Codex rebuild trigger received for branch ${{ github.event.client_payload.branch }}"
+      - name: Display rebuild trigger info
+        run: |
+          echo "✅ Codex rebuild triggered for branch: ${{ github.event.client_payload.branch }}"
+          echo "Repository: ${{ github.repository }}"
+          echo "Event: ${{ github.event.action }}"
+
+      - name: Placeholder for Codex integration
+        run: |
+          echo "Codex will now initiate a validation or rebuild cycle."
+          echo "To integrate a Codex runner, configure your webhook to listen for this repository_dispatch event."

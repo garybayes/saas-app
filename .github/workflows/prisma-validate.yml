@@ -1,13 +1,28 @@
-name: Prisma Schema Validation
+name: Prisma Migration Validation
 
 on:
   pull_request:
+    branches:
+      - main
+      - 'sprint-*-stable'
+  push:
+    branches:
+      - 'sprint-*-development'
 
 jobs:
-  validate:
+  prisma:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
-      - run: npm ci
-      - run: npx prisma validate
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Prisma schema
+        run: npx prisma validate

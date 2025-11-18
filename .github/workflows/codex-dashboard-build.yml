@@ -1,31 +1,60 @@
-name: Codex Dashboard Build
-
+name: Codex Dashboard Data Build
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "*/10 * * * *"   # Every 10 minutes
   push:
-    branches: [main]
+    branches:
+      - main
+      - sprint-5-testing
+
+permissions:
+  contents: write
+  actions: read
 
 jobs:
-  build-dashboard:
+  build-dashboard-data:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Generate dashboard data
+      - name: Fetch PRs
+        env:
+          GH_TOKEN: ${{ secrets.GH_API_TOKEN }}
         run: |
-          mkdir -p docs/data
-          echo '{}' > docs/data/codex.json
-          echo '{}' > docs/data/commits.json
-          echo '{}' > docs/data/workflows.json
-          echo '{}' > docs/data/prs.json
+          curl -s \
+            -H "Authorization: token $GH_TOKEN" \
+            https://api.github.com/repos/${{ github.repository }}/pulls \
+            > docs/data/prs.json
 
-      - name: Commit updates
+      - name: Fetch Workflow Runs
+        env:
+          GH_TOKEN: ${{ secrets.GH_API_TOKEN }}
         run: |
-          git config --global user.name "codex-dashboard-bot"
-          git config --global user.email "codex-bot@users.noreply.github.com"
-          git add docs/data || true
-          git commit -m "Dashboard data update" || echo "No changes"
-          git push origin HEAD:${GITHUB_REF#refs/heads/}
+          curl -s \
+            -H "Authorization: token $GH_TOKEN" \
+            https://api.github.com/repos/${{ github.repository }}/actions/runs \
+            > docs/data/workflows.json
+
+      - name: Fetch Codex Status Badge (local file)
+        run: |
+          cp .github/badges/codex-status.json docs/data/codex.json
+
+      - name: Fetch Recent Commits
+        env:
+          GH_TOKEN: ${{ secrets.GH_API_TOKEN }}
+        run: |
+          curl -s \
+            -H "Authorization: token $GH_TOKEN" \
+            https://api.github.com/repos/${{ github.repository }}/commits \
+            > docs/data/commits.json
+
+      - name: Commit and push data
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          git add docs/data/*.json
+          git commit -m "Update Codex Dashboard data [skip ci]" || echo "No changes"
+          git push
