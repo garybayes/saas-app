@@ -1,28 +1,58 @@
-name: Prisma Migration Validation
+name: Validate Prisma Schema and Environment
 
 on:
+  push:
+    branches:
+      - main
+      - sprint-*
   pull_request:
     branches:
       - main
-      - 'sprint-*-stable'
-  push:
-    branches:
-      - 'sprint-*-development'
 
 jobs:
-  prisma:
+  validate-prisma:
     runs-on: ubuntu-latest
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
+      NEXTAUTH_URL: ${{ secrets.NEXTAUTH_URL }}
+      AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+      AUTH_SALT: ${{ secrets.AUTH_SALT }}
+      ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate Prisma schema
+      - name: Validate .env.example
+        run: |
+          if ! grep -q "DATABASE_URL" .env.example; then
+            echo "Missing DATABASE_URL in .env.example"
+            exit 1
+          fi
+
+      - name: Validate Prisma Schema
         run: npx prisma validate
+
+      - name: Dry-run Prisma generate
+        run: npx prisma generate --no-hints --schema=prisma/schema.prisma
+
+      - name: Ensure .env not committed
+        run: |
+          if git ls-files | grep -q ".env$"; then
+            echo ".env file is committed — this is not allowed."
+            exit 1
+          fi
+
+      - name: Build Next.js app (dry check)
+        run: npm run build --if-present
