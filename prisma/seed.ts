@@ -1,61 +1,85 @@
-// prisma/seed.ts
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { encrypt } from "../src/lib/crypto";
+import { webcrypto } from "crypto"; // Web Crypto for Node
 
+const crypto = webcrypto;
 const prisma = new PrismaClient();
 
+const ENCRYPTION_KEY_B64 = process.env.ENCRYPTION_KEY;
+if (!ENCRYPTION_KEY_B64) {
+  throw new Error("ENCRYPTION_KEY missing in environment");
+}
+const ENCRYPTION_KEY = Buffer.from(ENCRYPTION_KEY_B64, "base64");
+
+// Convert raw key into a CryptoKey
+async function getCryptoKey() {
+  return crypto.subtle.importKey(
+    "raw",
+    ENCRYPTION_KEY,
+    "AES-GCM",
+    false,
+    ["encrypt"]
+  );
+}
+
+async function encrypt(plaintext: string): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await getCryptoKey();
+
+  const encoded = new TextEncoder().encode(plaintext);
+
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    encoded
+  );
+
+  const encryptedBytes = Buffer.from(ciphertext);
+  const result = Buffer.concat([Buffer.from(iv), encryptedBytes]);
+
+  return result.toString("base64");
+}
+
 async function main() {
-  console.log("🌱 Seeding test data into PostgreSQL...");
+  console.log("🌱 Seeding PostgreSQL test data...");
 
   const hashedPassword = await bcrypt.hash("password123", 10);
 
-  // Create a test user
+  // Create test user
   const user = await prisma.user.upsert({
     where: { email: "test@example.com" },
     update: {},
     create: {
       email: "test@example.com",
-      password: hashedPassword, // ✅ hashed now
+      password: hashedPassword,
       displayName: "Test User",
       theme: "light",
     },
   });
 
-  // Create connections
+  // Create demo connections
   await prisma.connection.createMany({
     data: [
       {
         userId: user.id,
         appName: "Slack",
-        apiKey: encrypt("slack-test-key")
+        apiKey: await encrypt("slack-test-key")
       },
       {
         userId: user.id,
         appName: "Notion",
-        apiKey: encrypt("notion-test-key")
-      },
+        apiKey: await encrypt("notion-test-key")
+      }
     ],
     skipDuplicates: true,
   });
-
-  // Create a demo workflow
-//  await prisma.workflow.upsert({
-//    where: { name_userId: { name: "Demo Workflow", userId: user.id } },
-//    update: {},
-//    create: {
-//      userId: user.id,
-//      name: "Demo Workflow",
-//      data: { steps: ["connect", "process", "notify"] },
-//    },
-//  });
 
   console.log("✅ Seeding complete.");
 }
 
 main()
   .catch((e) => {
-    console.error(e);
+    console.error("❌ Seed error:", e);
     process.exit(1);
   })
   .finally(async () => {
