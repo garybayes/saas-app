@@ -1,7 +1,7 @@
 "use client";
 
-import { signIn } from "next-auth/react";
 import { useState } from "react";
+import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
@@ -9,73 +9,65 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  async function handleLogin(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (loading) return;           // ⛔ prevents double submit
     setLoading(true);
     setError("");
 
-    if (!email || !password) {     // ⛔ prevents empty first submission
-      setError("Email and password are required.");
-      setLoading(false);
-      return;
-    }
-
-    const result = await signIn("credentials", {
+    const res = await signIn("credentials", {
       redirect: false,
       email,
       password,
     });
 
-    if (result?.ok) {
-      router.replace("/dashboard");
+    if (res?.error) {
+      setError("Invalid email or password.");
+      setLoading(false);
       return;
     }
 
-    setError("Invalid email or password");
-    setLoading(false);
+    router.push("/dashboard");
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
-      <form onSubmit={handleLogin} className="card w-full max-w-md flex flex-col gap-4">
-        <h2 className="text-2xl font-semibold text-center mb-2">Sign In</h2>
+    <div className="flex justify-center items-center min-h-screen">
+      <form
+        onSubmit={onSubmit}
+        className="bg-white dark:bg-gray-900 p-8 rounded-xl shadow-md w-full max-w-md"
+      >
+        <h1 className="text-2xl font-semibold mb-4">Sign In</h1>
+
+        {error && (
+          <p className="text-red-500 mb-3 text-sm">{error}</p>
+        )}
 
         <input
+          className="w-full p-3 border rounded mb-3 dark:bg-gray-800"
           type="email"
-          className="input"
           placeholder="Email"
-          autoComplete="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
         />
 
         <input
+          className="w-full p-3 border rounded mb-4 dark:bg-gray-800"
           type="password"
-          className="input"
           placeholder="Password"
-          autoComplete="current-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
         />
 
-        {error && <p className="error-msg text-center">{error}</p>}
-
-        <button type="submit" className="btn-primary mt-2" disabled={loading}>
-          {loading ? "Signing in..." : "Login"}
+        <button
+          className="w-full bg-blue-600 text-white p-3 rounded disabled:opacity-50"
+          disabled={loading}
+        >
+          {loading ? "Signing in..." : "Sign In"}
         </button>
-
-        <p className="text-sm text-center">
-          Don’t have an account?{" "}
-          <a href="/signup" className="text-primary hover:underline">
-            Sign up
-          </a>
-        </p>
       </form>
     </div>
   );
