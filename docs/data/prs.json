@@ -34,10 +34,10 @@
     },
     "body": "🟦 “Codex: Run Minimal Sprint-5 Harness & Stabilize Server Boot”\r\n\r\nObjective:\r\nRun the current sprint-5-testing-v2 branch of garybayes/saas-app and stabilize the Playwright test infrastructure.\r\n\r\nWe are beginning Sprint 5 testing, but want to ensure:\r\n\r\nNext.js server starts reliably\r\n\r\nrace conditions are resolved\r\n\r\nlogin + middleware + theme cookies behave predictably\r\n\r\nPlaywright’s webServer startup timing is consistent\r\n\r\nredirects are handled correctly\r\n\r\nbase URL and port reuse are stable\r\n\r\n\r\nBefore generating the full E2E suite, we want the foundation locked down.\r\n\r\nWe already have a 100% clean Sprint-4 baseline, and only minimal Playwright tests currently exist:\r\n\r\ntests/e2e/login.spec.ts\r\ntests/e2e/signup.spec.ts\r\n\r\nBoth pass locally.\r\n\r\nTasks for Codex\r\n\r\nPlease perform the following on the branch sprint-5-testing-v2:\r\n\r\n\r\n---\r\n\r\n1. Fresh checkout + run minimal E2E tests\r\n\r\nnpm ci\r\nnpm run build\r\nnpm run test:e2e\r\n\r\nCapture:\r\n\r\nlogs\r\n\r\nserver startup behavior\r\n\r\nPlaywright worker boot\r\n\r\nany warnings\r\n\r\nany port-detection issues\r\n\r\nany async cookie/middleware timing issues\r\n\r\n\r\n\r\n---\r\n\r\n2. Fix all server startup and race conditions\r\n\r\nThis includes:\r\n\r\nA. webServer stability\r\n\r\nEnsure:\r\n\r\nwebServer: {\r\n  command: \"npm run build && npm start\",\r\n  url: \"http://localhost:3000\",\r\n  reuseExistingServer: !process.env.CI,\r\n  timeout: 120 * 1000,\r\n}\r\n\r\nTest:\r\n\r\nno hanging\r\n\r\nno redirect loops\r\n\r\nno “port in use” fallback to 3001\r\n\r\nno “timed out waiting for server”\r\n\r\n\r\nB. Fix Next.js 15 middleware timing issues\r\n\r\nStabilize:\r\n\r\ngetServerSession() call timing\r\n\r\nNextAuth redirect flow\r\n\r\nCSRF token hydration\r\n\r\ntheme cookie read sequence\r\n\r\npreload script ordering\r\n\r\n\r\nC. Fix load-race during login\r\n\r\nDetect and patch:\r\n\r\ninput field clearing\r\n\r\n“screen frozen after login”\r\n\r\nhydration mismatch\r\n\r\ntheme flicker on first render\r\n\r\n\r\nThis requires a fix in middleware + login page + preload ordering.\r\n\r\n\r\n---\r\n\r\n3. Fix all test flakiness\r\n\r\nCreate patches for:\r\n\r\nauth fixtures\r\n\r\nguest fixtures\r\n\r\nlogin helpers\r\n\r\nextra waits\r\n\r\nroute stabilization\r\n\r\n\r\nEnsure:\r\n\r\nLogin page loads\r\nSignup page loads\r\n\r\nare perfectly stable across 10 consecutive runs.\r\n\r\n\r\n---\r\n\r\n4. Remove dead test folders\r\n\r\nDelete:\r\n\r\ntests/e2e/private\r\ntests/e2e/public\r\ntests/utils/*\r\n\r\nKeep only:\r\n\r\ntests/e2e/login.spec.ts\r\ntests/e2e/signup.spec.ts\r\ntests/utils/constants.ts\r\n\r\nEnsure Playwright’s config excludes all legacy directories.\r\n\r\n\r\n---\r\n\r\n5. Output patch set\r\n\r\nPlease generate a single combined diff containing all changes:\r\n\r\nplaywright.config.ts\r\n\r\nmiddleware.ts\r\n\r\nlayout.tsx\r\n\r\nlogin/page.tsx\r\n\r\ntheme-preload.ts\r\n\r\nany required server-boot stabilization\r\n\r\ntest fixtures\r\n\r\ntest config\r\n\r\n\r\n\r\n---\r\n\r\n6. Provide a concise report\r\n\r\nInclude:\r\n\r\nroot cause summary\r\n\r\nserver startup improvements\r\n\r\nPlaywright timing improvements\r\n\r\nfinal clean tree structure\r\n\r\ninstructions for merging into main\r\n\r\n\r\n\r\n---\r\n\r\nCodex Inputs\r\n\r\nRepository:\r\nhttps://github.com/garybayes/saas-app\r\n\r\nBranch to operate on:\r\nsprint-5-testing-v2\r\n",
     "created_at": "2025-11-19T16:50:55Z",
-    "updated_at": "2025-11-19T16:50:55Z",
+    "updated_at": "2025-11-19T20:07:30Z",
     "closed_at": null,
     "merged_at": null,
-    "merge_commit_sha": null,
+    "merge_commit_sha": "f12a0b44a15b0baa2a4daaacec1df03fc08c4005",
     "assignee": null,
     "assignees": [
 
@@ -57,11 +57,11 @@
     "review_comments_url": "https://api.github.com/repos/garybayes/saas-app/pulls/3/comments",
     "review_comment_url": "https://api.github.com/repos/garybayes/saas-app/pulls/comments{/number}",
     "comments_url": "https://api.github.com/repos/garybayes/saas-app/issues/3/comments",
-    "statuses_url": "https://api.github.com/repos/garybayes/saas-app/statuses/63aaae6203d4453205196bf0fd1f1ca163754b4d",
+    "statuses_url": "https://api.github.com/repos/garybayes/saas-app/statuses/ba9825e08231a030d65ecc21d69396a42da56617",
     "head": {
       "label": "garybayes:sprint-5-testing",
       "ref": "sprint-5-testing",
-      "sha": "63aaae6203d4453205196bf0fd1f1ca163754b4d",
+      "sha": "ba9825e08231a030d65ecc21d69396a42da56617",
       "user": {
         "login": "garybayes",
         "id": 235177520,
@@ -151,8 +151,8 @@
         "releases_url": "https://api.github.com/repos/garybayes/saas-app/releases{/id}",
         "deployments_url": "https://api.github.com/repos/garybayes/saas-app/deployments",
         "created_at": "2025-10-15T01:56:38Z",
-        "updated_at": "2025-11-19T19:47:49Z",
-        "pushed_at": "2025-11-19T19:47:46Z",
+        "updated_at": "2025-11-19T19:59:48Z",
+        "pushed_at": "2025-11-19T20:07:29Z",
         "git_url": "git://github.com/garybayes/saas-app.git",
         "ssh_url": "git@github.com:garybayes/saas-app.git",
         "clone_url": "https://github.com/garybayes/saas-app.git",
@@ -190,7 +190,7 @@
     "base": {
       "label": "garybayes:main",
       "ref": "main",
-      "sha": "2e863fe1cc5efbaca77a03f0b98749598d503582",
+      "sha": "0740bda7ad63ab3f0bf979f8450252bcadb2b447",
       "user": {
         "login": "garybayes",
         "id": 235177520,
@@ -280,8 +280,8 @@
         "releases_url": "https://api.github.com/repos/garybayes/saas-app/releases{/id}",
         "deployments_url": "https://api.github.com/repos/garybayes/saas-app/deployments",
         "created_at": "2025-10-15T01:56:38Z",
-        "updated_at": "2025-11-19T19:47:49Z",
-        "pushed_at": "2025-11-19T19:47:46Z",
+        "updated_at": "2025-11-19T19:59:48Z",
+        "pushed_at": "2025-11-19T20:07:29Z",
         "git_url": "git://github.com/garybayes/saas-app.git",
         "ssh_url": "git@github.com:garybayes/saas-app.git",
         "clone_url": "https://github.com/garybayes/saas-app.git",
@@ -339,7 +339,7 @@
         "href": "https://api.github.com/repos/garybayes/saas-app/pulls/3/commits"
       },
       "statuses": {
-        "href": "https://api.github.com/repos/garybayes/saas-app/statuses/63aaae6203d4453205196bf0fd1f1ca163754b4d"
+        "href": "https://api.github.com/repos/garybayes/saas-app/statuses/ba9825e08231a030d65ecc21d69396a42da56617"
       }
     },
     "author_association": "OWNER",
@@ -498,8 +498,8 @@
         "releases_url": "https://api.github.com/repos/garybayes/saas-app/releases{/id}",
         "deployments_url": "https://api.github.com/repos/garybayes/saas-app/deployments",
         "created_at": "2025-10-15T01:56:38Z",
-        "updated_at": "2025-11-19T19:47:49Z",
-        "pushed_at": "2025-11-19T19:47:46Z",
+        "updated_at": "2025-11-19T19:59:48Z",
+        "pushed_at": "2025-11-19T20:07:29Z",
         "git_url": "git://github.com/garybayes/saas-app.git",
         "ssh_url": "git@github.com:garybayes/saas-app.git",
         "clone_url": "https://github.com/garybayes/saas-app.git",
@@ -627,8 +627,8 @@
         "releases_url": "https://api.github.com/repos/garybayes/saas-app/releases{/id}",
         "deployments_url": "https://api.github.com/repos/garybayes/saas-app/deployments",
         "created_at": "2025-10-15T01:56:38Z",
-        "updated_at": "2025-11-19T19:47:49Z",
-        "pushed_at": "2025-11-19T19:47:46Z",
+        "updated_at": "2025-11-19T19:59:48Z",
+        "pushed_at": "2025-11-19T20:07:29Z",
         "git_url": "git://github.com/garybayes/saas-app.git",
         "ssh_url": "git@github.com:garybayes/saas-app.git",
         "clone_url": "https://github.com/garybayes/saas-app.git",
