@@ -8,14 +8,15 @@ jobs:
   update-badge-with-timestamp:
     name: Update Codex Badge with Timestamp
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Update Codex badge with last verified time
         run: |
-          STATUS=${{ github.event.client_payload.status || 'passing' }}
-          COLOR=${{ github.event.client_payload.color || 'brightgreen' }}
+          STATUS="${{ github.event.client_payload.status != '' && github.event.client_payload.status || 'passing' }}"
+          COLOR="${{ github.event.client_payload.color != '' && github.event.client_payload.color || 'brightgreen' }}"
           DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           mkdir -p .github/badges
@@ -34,11 +35,9 @@ jobs:
           mkdir -p doc
           LOG_FILE="doc/Codex_Rebuild_History.md"
           DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          BRANCH=${{ github.event.client_payload.branch || github.ref_name }}
-          STATUS=${{ github.event.client_payload.status || 'passing' }}
-          COLOR=${{ github.event.client_payload.color || 'brightgreen' }}
+          BRANCH="${{ github.event.client_payload.branch != '' && github.event.client_payload.branch || github.ref_name }}"
+          STATUS="${{ github.event.client_payload.status != '' && github.event.client_payload.status || 'passing' }}"
 
-          # Header if new file
           if [ ! -f "$LOG_FILE" ]; then
             echo "# Codex Rebuild History" > "$LOG_FILE"
             echo "" >> "$LOG_FILE"
@@ -46,7 +45,6 @@ jobs:
             echo "|-------------|---------|----------|" >> "$LOG_FILE"
           fi
 
-          # Append new entry
           echo "| $DATE | $BRANCH | $STATUS |" >> "$LOG_FILE"
 
       - name: Commit updated Codex history
@@ -62,16 +60,13 @@ jobs:
           DASHBOARD="doc/Codex_Rebuild_Dashboard.md"
           HISTORY="doc/Codex_Rebuild_History.md"
 
-          # Skip if dashboard doesn't exist yet
           if [ ! -f "$DASHBOARD" ]; then
             echo "Dashboard not found. Skipping sync."
             exit 0
           fi
 
-          # Extract the last 5 entries from history (excluding header)
           HISTORY_SNIPPET=$(grep -v '^#' "$HISTORY" | grep '|' | tail -n 5)
 
-          # Build the replacement block
           NEW_BLOCK=$(cat <<EOF
 | Date (UTC) | Branch | Status |
 |-------------|---------|----------|
@@ -79,7 +74,6 @@ $HISTORY_SNIPPET
 EOF
 )
 
-          # Replace the rebuild history table in the dashboard
           awk -v newblock="$NEW_BLOCK" '
             BEGIN {print_block=1}
             /^## 🧾 Rebuild History/ {print; print newblock; print_block=0; next}
