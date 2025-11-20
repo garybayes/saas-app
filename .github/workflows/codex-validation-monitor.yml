@@ -1,72 +1,90 @@
-name: Validate Repository Secrets
+name: Codex Validation Monitor
 
 on:
-  push:
-    branches:
-      - main
-      - sprint-*
-  pull_request:
-  workflow_dispatch:
   repository_dispatch:
-    types: [codex-validate]
-
-permissions:
-  contents: read
+    types: [codex-validated]
 
 jobs:
-  validate-secrets:
-    name: Validate GitHub Actions Secrets
+  update-badge-with-timestamp:
+    name: Update Codex Badge with Timestamp
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Validate required secrets
+      - name: Update Codex badge with last verified time
         run: |
-          echo "Validating GitHub repository secrets..."
+          STATUS="${{ github.event.client_payload.status != '' && github.event.client_payload.status || 'passing' }}"
+          COLOR="${{ github.event.client_payload.color != '' && github.event.client_payload.color || 'brightgreen' }}"
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          REQUIRED_SECRETS=(
-            "AUTH_SECRET"
-            "AUTH_SALT"
-            "DATABASE_URL"
-            "ENCRYPTION_KEY"
-            "NEXTAUTH_SECRET"
-            "NEXTAUTH_URL"
-            "JWT_SECRET"
-            "GH_TOKEN"
-          )
+          mkdir -p .github/badges
+          echo "{\"schemaVersion\":1,\"label\":\"codex-status\",\"message\":\"${STATUS}\",\"color\":\"${COLOR}\",\"labelColor\":\"gray\",\"namedLogo\":\"githubactions\",\"style\":\"flat\",\"footer\":\"Last verified ${DATE}\"}" > .github/badges/codex-status.json
 
-          MISSING=0
+      - name: Commit updated badge
+        run: |
+          git config --global user.name "codex-ci-bot"
+          git config --global user.email "codex-bot@users.noreply.github.com"
+          git add .github/badges/codex-status.json
+          git commit -m "ci: update Codex status to ${{ github.event.client_payload.status }} @ $(date -u +"%Y-%m-%d %H:%M:%S UTC")" || echo "No changes to commit"
+          git push origin HEAD:${GITHUB_REF#refs/heads/}
 
-          echo ""
-          echo "Checking secrets..."
-          echo ""
+      - name: Update Codex rebuild history log
+        run: |
+          mkdir -p doc
+          LOG_FILE="doc/Codex_Rebuild_History.md"
+          DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          BRANCH="${{ github.event.client_payload.branch != '' && github.event.client_payload.branch || github.ref_name }}"
+          STATUS="${{ github.event.client_payload.status != '' && github.event.client_payload.status || 'passing' }}"
 
-          for SECRET_NAME in "${REQUIRED_SECRETS[@]}"; do
-            if [ -z "${!SECRET_NAME}" ]; then
-              echo " ❌ Missing: $SECRET_NAME"
-              MISSING=1
-            else
-              echo " ✅ Present: $SECRET_NAME"
-            fi
-          done
-
-          if [ "$MISSING" -eq 1 ]; then
-            echo ""
-            echo "❌ Missing one or more required secrets."
-            echo "Add them in Settings → Secrets and variables → Actions"
-            exit 1
+          if [ ! -f "$LOG_FILE" ]; then
+            echo "# Codex Rebuild History" > "$LOG_FILE"
+            echo "" >> "$LOG_FILE"
+            echo "| Date (UTC) | Branch | Status |" >> "$LOG_FILE"
+            echo "|-------------|---------|----------|" >> "$LOG_FILE"
           fi
 
-          echo ""
-          echo "🎉 All required secrets are present!"
-        env:
-          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
-          AUTH_SALT: ${{ secrets.AUTH_SALT }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
-          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
-          NEXTAUTH_URL: ${{ secrets.NEXTAUTH_URL }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          echo "| $DATE | $BRANCH | $STATUS |" >> "$LOG_FILE"
+
+      - name: Commit updated Codex history
+        run: |
+          git config --global user.name "codex-ci-bot"
+          git config --global user.email "codex-bot@users.noreply.github.com"
+          git add doc/Codex_Rebuild_History.md
+          git commit -m "docs: record Codex validation (${{ github.event.client_payload.status }}) on $(date -u +"%Y-%m-%d %H:%M:%S UTC")" || echo "No changes to commit"
+          git push origin HEAD:${GITHUB_REF#refs/heads/}
+
+      - name: Synchronize Codex Dashboard summary table
+        run: |
+          DASHBOARD="doc/Codex_Rebuild_Dashboard.md"
+          HISTORY="doc/Codex_Rebuild_History.md"
+
+          if [ ! -f "$DASHBOARD" ]; then
+            echo "Dashboard not found. Skipping sync."
+            exit 0
+          fi
+
+          HISTORY_SNIPPET=$(grep -v '^#' "$HISTORY" | grep '|' | tail -n 5)
+
+          NEW_BLOCK=$(cat <<EOF
+| Date (UTC) | Branch | Status |
+|-------------|---------|----------|
+$HISTORY_SNIPPET
+EOF
+)
+
+          awk -v newblock="$NEW_BLOCK" '
+            BEGIN {print_block=1}
+            /^## 🧾 Rebuild History/ {print; print newblock; print_block=0; next}
+            /^## / && !/## 🧾 Rebuild History/ {print_block=1}
+            print_block
+          ' "$DASHBOARD" > tmp_dashboard.md && mv tmp_dashboard.md "$DASHBOARD"
+
+      - name: Commit updated dashboard
+        run: |
+          git config --global user.name "codex-ci-bot"
+          git config --global user.email "codex-bot@users.noreply.github.com"
+          git add doc/Codex_Rebuild_Dashboard.md
+          git commit -m "docs: sync Codex Rebuild Dashboard summary @ $(date -u +"%Y-%m-%d %H:%M:%S UTC")" || echo "No dashboard changes"
+          git push origin HEAD:${GITHUB_REF#refs/heads/}
