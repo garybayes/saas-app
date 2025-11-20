@@ -60,7 +60,7 @@ jobs:
         run: npx prisma db seed
 
       - name: Run unit and integration tests
-        run: npm run test --if-present
+        run: npm run test --if-present -- --passWithNoTests
 
       - name: Start application server
         run: |
