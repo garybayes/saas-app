@@ -63,9 +63,7 @@ jobs:
         run: npm run test --if-present -- --passWithNoTests
 
       - name: Start application server
-        run: |
-          nohup npm run dev > server.log 2>&1 &
-          sleep 10
+        run: echo "Playwright will handle launching the server."
 
       - name: Run end-to-end tests (Playwright)
         run: npm run test:e2e --if-present
