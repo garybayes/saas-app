@@ -86,7 +86,7 @@ $RECYCLE.BIN/
 # --- GitHub Actions & documentation builds ---
 site/
 gh-pages/
-.github/badges/
+!/.github/badges/
 
 # --- Temporary project artifacts ---
 scripts/tmp/
