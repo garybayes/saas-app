@@ -1,0 +1,90 @@
+name: Codex Full Validation & Dashboard
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - sprint-*
+  pull_request:
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  codex-validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Validate TypeScript
+        run: npm run build --if-present
+
+      - name: Run linting
+        run: npm run lint --if-present
+
+      - name: Prisma format & generate
+        run: |
+          npx prisma format
+          npx prisma generate
+
+      - name: Run seed
+        run: npx prisma db seed
+
+      - name: Run Playwright tests
+        uses: actions/setup-node@v3
+        run: |
+          npx playwright install --with-deps
+          npm run test:e2e
+
+      - name: Prepare Codex Dashboard Artifacts
+        run: |
+          mkdir -p codex-build
+          cp -R gh-pages/* codex-build/
+
+      - name: Upload Codex Dashboard Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: codex-dashboard
+          path: codex-build
+
+  deploy-dashboard:
+    needs: codex-validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout gh-pages
+        uses: actions/checkout@v3
+        with:
+          ref: gh-pages
+
+      - name: Download dashboard artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: codex-dashboard
+          path: .
+
+      - name: Deploy dashboard contents
+        run: |
+          rm -rf *
+          cp -R codex-dashboard/* .
+          rm -rf codex-dashboard
+          git config user.name "codex-ci-bot"
+          git config user.email "codex@github.actions"
+          git add -A
+          git commit -m "Codex Dashboard Auto-Rebuild" || echo "No changes"
+          git push origin gh-pages
