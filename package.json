@@ -15,8 +15,9 @@
     "test:ui": "vitest",
     "test:e2e": "npx playwright test --config=playwright.config.ts",
     "test:e2e:headed": "playwright test --headed",
-    "test:e2e:debug": "playwright test --debug"
+    "test:e2e:debug": "playwright test --debug",
     "codex:build": "node codex/generate.js",
+    "codex:preview": "npx serve codex-local"
  },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": "eslint --fix"
