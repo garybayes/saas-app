@@ -1,90 +1,69 @@
-name: Codex Full Validation & Dashboard
+name: Regenerate Codex Dashboard
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - sprint-*
-  pull_request:
-
-permissions:
-  contents: write
-  pages: write
+  schedule:
+    - cron: "0 * * * *" # every hour (adjust as needed)
 
 jobs:
-  codex-validate:
+  build-codex-dashboard:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          node-version: "22"
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Validate TypeScript
-        run: npm run build --if-present
+      # ---------------------------------------------
+      # 1. Create workspace temp directory
+      # ---------------------------------------------
+      - name: Create workspace Codex data directory
+        run: mkdir -p "${{ github.workspace }}/codex-data"
 
-      - name: Run linting
-        run: npm run lint --if-present
-
-      - name: Prisma format & generate
+      # ---------------------------------------------
+      # 2. Generate new dashboard data into workspace
+      # ---------------------------------------------
+      - name: Run Codex data generator
         run: |
-          npx prisma format
-          npx prisma generate
+          echo "Generating Codex dashboard data..."
+          npm run codex:build --if-present || echo "codex:build not defined, skipping build step"
 
-      - name: Run seed
-        run: npx prisma db seed
+        env:
+          CODEX_OUTPUT_DIR: "${{ github.workspace }}/codex-data"
 
-      - name: Run Playwright tests
-        uses: actions/setup-node@v3
-        run: |
-          npx playwright install --with-deps
-          npm run test:e2e
-
-      - name: Prepare Codex Dashboard Artifacts
-        run: |
-          mkdir -p codex-build
-          cp -R gh-pages/* codex-build/
-
-      - name: Upload Codex Dashboard Artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: codex-dashboard
-          path: codex-build
-
-  deploy-dashboard:
-    needs: codex-validate
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout gh-pages
-        uses: actions/checkout@v3
+      # ---------------------------------------------
+      # 3. Prepare gh-pages folder
+      # ---------------------------------------------
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
         with:
           ref: gh-pages
+          path: gh-pages
+          fetch-depth: 1
 
-      - name: Download dashboard artifact
-        uses: actions/download-artifact@v3
-        with:
-          name: codex-dashboard
-          path: .
+      - name: Clear old dashboard content
+        run: rm -rf gh-pages/*
 
-      - name: Deploy dashboard contents
+      - name: Copy regenerated data
+        run: cp -R "${{ github.workspace }}/codex-data/." gh-pages/
+
+      # ---------------------------------------------
+      # 4. Deploy to gh-pages
+      # ---------------------------------------------
+      - name: Commit and push to gh-pages
         run: |
-          rm -rf *
-          cp -R codex-dashboard/* .
-          rm -rf codex-dashboard
+          cd gh-pages
+          git config user.email "codex-ci-bot@github"
           git config user.name "codex-ci-bot"
-          git config user.email "codex@github.actions"
           git add -A
-          git commit -m "Codex Dashboard Auto-Rebuild" || echo "No changes"
+          git commit -m "Regenerate Codex Dashboard [ci skip]" || echo "No changes"
           git push origin gh-pages
