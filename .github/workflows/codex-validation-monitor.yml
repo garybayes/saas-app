@@ -1,168 +1,96 @@
 name: Codex Validation Monitor
 
 on:
-  # Fired by Codex via repository_dispatch
   repository_dispatch:
     types: [codex-validated]
 
 jobs:
-  update-badge-and-dashboard:
-    name: Update Codex badge & dashboard
+  update-badge-with-timestamp:
+    name: Update Codex Badge with Timestamp
     runs-on: ubuntu-latest
-
-    # Centralized values so we don't sprinkle ${{ }} everywhere in shell
-    env:
-      TARGET_BRANCH: ${{ github.event.client_payload.branch || github.ref_name || 'main' }}
-      CODEX_STATUS: ${{ github.event.client_payload.status || 'passing' }}
-      CODEX_COLOR: ${{ github.event.client_payload.color || 'brightgreen' }}
-
     steps:
-      - name: Checkout target branch
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ env.TARGET_BRANCH }}
 
-      - name: Debug event payload
+      - name: Update Codex badge with last verified time
         run: |
-          echo "Event name:        $GITHUB_EVENT_NAME"
-          echo "Git ref:           $GITHUB_REF"
-          echo "Target branch:     $TARGET_BRANCH"
-          echo "Codex status:      $CODEX_STATUS"
-          echo "Codex color:       $CODEX_COLOR"
-          echo
-          echo "Raw event payload:"
-          cat "$GITHUB_EVENT_PATH"
-
-      # ─────────────────────────────────────────────
-      # 1) Badge JSON (.github/badges/codex-status.json)
-      # ─────────────────────────────────────────────
-      - name: Update Codex badge JSON
-        run: |
-          DATE_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          STATUS=${{ github.event.client_payload.status || 'passing' }}
+          COLOR=${{ github.event.client_payload.color || 'brightgreen' }}
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           mkdir -p .github/badges
+          echo "{\"schemaVersion\":1,\"label\":\"codex-status\",\"message\":\"${STATUS}\",\"color\":\"${COLOR}\",\"labelColor\":\"gray\",\"namedLogo\":\"githubactions\",\"style\":\"flat\",\"footer\":\"Last verified ${DATE}\"}" > .github/badges/codex-status.json
 
-          cat > .github/badges/codex-status.json <<EOF
-{"schemaVersion":1,"label":"codex-status","message":"$CODEX_STATUS","color":"$CODEX_COLOR","labelColor":"gray","namedLogo":"githubactions","style":"flat","footer":"Last verified $DATE_ISO"}
-EOF
-
-          echo "Wrote .github/badges/codex-status.json:"
-          cat .github/badges/codex-status.json
-
-      - name: Commit badge
+      - name: Commit updated badge
         run: |
-          git config --global user.name  "codex-ci-bot"
+          git config --global user.name "codex-ci-bot"
           git config --global user.email "codex-bot@users.noreply.github.com"
-
           git add .github/badges/codex-status.json
+          git commit -m "ci: update Codex status to ${{ github.event.client_payload.status }} @ $(date -u +"%Y-%m-%d %H:%M:%S UTC")" || echo "No changes to commit"
+          git push origin HEAD:${GITHUB_REF#refs/heads/}
 
-          DATE_HUMAN=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          git commit -m "ci: update Codex status to $CODEX_STATUS @ $DATE_HUMAN" || echo "No badge changes to commit"
-          git push origin "HEAD:$TARGET_BRANCH" || echo "No badge changes to push"
-
-      # ─────────────────────────────────────────────
-      # 2) History log (docs/Codex_Rebuild_History.md)
-      # ─────────────────────────────────────────────
       - name: Update Codex rebuild history log
         run: |
-          mkdir -p docs
-          LOG_FILE="docs/Codex_Rebuild_History.md"
-          DATE_HUMAN=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          mkdir -p doc
+          LOG_FILE="doc/Codex_Rebuild_History.md"
+          DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          BRANCH=${{ github.event.client_payload.branch || github.ref_name }}
+          STATUS=${{ github.event.client_payload.status || 'passing' }}
+          COLOR=${{ github.event.client_payload.color || 'brightgreen' }}
 
+          # Header if new file
           if [ ! -f "$LOG_FILE" ]; then
-            {
-              echo "# Codex Rebuild History"
-              echo
-              echo "| Date (UTC) | Branch | Status |"
-              echo "|-----------|--------|--------|"
-            } > "$LOG_FILE"
+            echo "# Codex Rebuild History" > "$LOG_FILE"
+            echo "" >> "$LOG_FILE"
+            echo "| Date (UTC) | Branch | Status |" >> "$LOG_FILE"
+            echo "|-------------|---------|----------|" >> "$LOG_FILE"
           fi
 
-          echo "| $DATE_HUMAN | $TARGET_BRANCH | $CODEX_STATUS |" >> "$LOG_FILE"
+          # Append new entry
+          echo "| $DATE | $BRANCH | $STATUS |" >> "$LOG_FILE"
 
-          echo "Updated $LOG_FILE:"
-          tail -n 10 "$LOG_FILE"
-
-      - name: Commit history log
+      - name: Commit updated Codex history
         run: |
-          git config --global user.name  "codex-ci-bot"
+          git config --global user.name "codex-ci-bot"
           git config --global user.email "codex-bot@users.noreply.github.com"
+          git add doc/Codex_Rebuild_History.md
+          git commit -m "docs: record Codex validation (${{ github.event.client_payload.status }}) on $(date -u +"%Y-%m-%d %H:%M:%S UTC")" || echo "No changes to commit"
+          git push origin HEAD:${GITHUB_REF#refs/heads/}
 
-          git add docs/Codex_Rebuild_History.md
-
-          DATE_HUMAN=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          git commit -m "docs: record Codex validation ($CODEX_STATUS) on $DATE_HUMAN" || echo "No history changes to commit"
-          git push origin "HEAD:$TARGET_BRANCH" || echo "No history changes to push"
-
-      # ─────────────────────────────────────────────
-      # 3) Dashboard summary (docs/Codex_Rebuild_Dashboard.md)
-      # ─────────────────────────────────────────────
-      - name: Synchronize Codex dashboard summary
+      - name: Synchronize Codex Dashboard summary table
         run: |
-          DASHBOARD="docs/Codex_Rebuild_Dashboard.md"
-          HISTORY="docs/Codex_Rebuild_History.md"
+          DASHBOARD="doc/Codex_Rebuild_Dashboard.md"
+          HISTORY="doc/Codex_Rebuild_History.md"
 
-          if [ ! -f "$HISTORY" ]; then
-            echo "History file not found ($HISTORY), skipping dashboard sync."
+          # Skip if dashboard doesn't exist yet
+          if [ ! -f "$DASHBOARD" ]; then
+            echo "Dashboard not found. Skipping sync."
             exit 0
           fi
 
-          # If dashboard doesn't exist yet, create a basic shell
-          if [ ! -f "$DASHBOARD" ]; then
-            {
-              echo "# Codex Rebuild Dashboard"
-              echo
-              echo "High-level summary of Codex validation runs."
-              echo
-              echo "## 🧾 Rebuild History"
-              echo
-              echo "| Date (UTC) | Branch | Status |"
-              echo "|-----------|--------|--------|"
-            } > "$DASHBOARD"
-          fi
-
-          # Last 5 entries from the history table (ignoring headers)
+          # Extract the last 5 entries from history (excluding header)
           HISTORY_SNIPPET=$(grep -v '^#' "$HISTORY" | grep '|' | tail -n 5)
 
-          # Static table header for the dashboard section
-          NEW_BLOCK=$(cat <<'TABLE'
+          # Build the replacement block
+          NEW_BLOCK=$(cat <<EOF
 | Date (UTC) | Branch | Status |
-|-----------|--------|--------|
-TABLE
+|-------------|---------|----------|
+$HISTORY_SNIPPET
+EOF
 )
-          NEW_BLOCK="$NEW_BLOCK
-$HISTORY_SNIPPET"
 
-          # Replace the "Rebuild History" table in the dashboard
+          # Replace the rebuild history table in the dashboard
           awk -v newblock="$NEW_BLOCK" '
-            BEGIN { in_block = 0 }
-            /^## 🧾 Rebuild History/ {
-              print
-              print ""
-              print newblock
-              in_block = 1
-              next
-            }
-            /^## / && $0 !~ /## 🧾 Rebuild History/ {
-              in_block = 0
-            }
-            {
-              if (!in_block || /^## /) print
-            }
-          ' "$DASHBOARD" > tmp_dashboard.md
+            BEGIN {print_block=1}
+            /^## 🧾 Rebuild History/ {print; print newblock; print_block=0; next}
+            /^## / && !/## 🧾 Rebuild History/ {print_block=1}
+            print_block
+          ' "$DASHBOARD" > tmp_dashboard.md && mv tmp_dashboard.md "$DASHBOARD"
 
-          mv tmp_dashboard.md "$DASHBOARD"
-
-          echo "Updated $DASHBOARD:"
-          tail -n 20 "$DASHBOARD"
-
-      - name: Commit dashboard
+      - name: Commit updated dashboard
         run: |
-          git config --global user.name  "codex-ci-bot"
+          git config --global user.name "codex-ci-bot"
           git config --global user.email "codex-bot@users.noreply.github.com"
-
-          git add docs/Codex_Rebuild_Dashboard.md
-
-          DATE_HUMAN=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          git commit -m "docs: sync Codex Rebuild Dashboard summary @ $DATE_HUMAN" || echo "No dashboard changes to commit"
-          git push origin "HEAD:$TARGET_BRANCH" || echo "No dashboard changes to push"
+          git add doc/Codex_Rebuild_Dashboard.md
+          git commit -m "docs: sync Codex Rebuild Dashboard summary @ $(date -u +"%Y-%m-%d %H:%M:%S UTC")" || echo "No dashboard changes"
+          git push origin HEAD:${GITHUB_REF#refs/heads/}
