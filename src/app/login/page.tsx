@@ -63,11 +63,20 @@ export default function LoginPage() {
         />
 
         <button
+          type="submit"
           className="w-full bg-blue-600 text-white p-3 rounded disabled:opacity-50"
           disabled={loading}
         >
           {loading ? "Signing in..." : "Sign In"}
         </button>
+
+        {/* 🔥 Add Signup link back */}
+        <p className="text-sm text-center mt-4">
+          Don’t have an account?{" "}
+          <a href="/signup" className="text-blue-600 hover:underline">
+            Create Account
+          </a>
+        </p>
       </form>
     </div>
   );

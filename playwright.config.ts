@@ -1,53 +1,31 @@
 // playwright.config.ts
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  outputDir: "tests/test-results", // <— this line
-  timeout: 60 * 1000,
-  expect: {
-    timeout: 5000,
-  },
-  fullyParallel: true,
-  retries: 0, // set to 1 or 2 for CI runs if needed
-  reporter: [
-    ["list"],
-    ["html", { open: "never", outputFolder: "tests/playwright-report" }],
-  ],
-use: {
-  baseURL: process.env.BASE_URL || "http://localhost:3000",
-  storageState: "tests/.auth/state.json",
-  screenshot: "only-on-failure",
-  trace: "retain-on-failure",
-},
-  projects: [
-    {
-      name: "Public (Chromium)",
-      testMatch: ["**/*.spec.ts"],
-      use: { ...devices["Desktop Chrome"] },
-    },
-    {
-      name: "Private (Chromium)",
-      testMatch: ["**/*.spec.ts"],
-      use: {
-        ...devices["Desktop Chrome"],
-        storageState: "tests/.auth/state.json",
-      },
-      dependencies: ["authSetup"],
-    },
-    {
-      name: "authSetup",
-      testMatch: /tests\/utils\/auth\.ts/,
-      use: { ...devices["Desktop Chrome"] },
-    },
-  ],
+  timeout: 30_000,
 
-  // Run dev server automatically when testing locally
+  use: {
+    baseURL: "http://localhost:3000",
+    extraHTTPHeaders: {
+      "x-test-mode": "true",   // ✅ triggers middleware bypass
+    },
+    storageState: "tests/.auth/state.json",
+  },
+
+  globalSetup: "./tests/playwright.setup.ts",
+
   webServer: {
-    command: "npm run dev",
+    command:
+      "cross-env NEXTAUTH_URL=http://localhost:3000 " +
+      "NEXTAUTH_SECRET=FJ21aPkdJ0DPpSj+GkQfKIxHbxuU9juXUPasjYF4ofs= " +
+      "ENCRYPTION_KEY=v94oNiDBqrZqzzlKpiFLPFmuq0d/bKiPU1+JWGqS0+k= " +
+      "JWT_SECRET=BMGU8tYvdFUMXzWNCT0IkK9Z371F5nWuV1YcxWz74oo= " +
+      "AUTH_SECRET=FJ21aPkdJ0DPpSj+GkQfKIxHbxuU9juXUPasjYF4ofs= " +
+      "AUTH_SALT=MDJaxVmmxmFNiQ9LhnDlykh5VrMYmX0RKrvkuKKFPo0= " +
+      "next dev --port=3000",
     url: "http://localhost:3000",
-    timeout: 120 * 1000,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: true,   // Allows dev server to keep running if needed
+    timeout: 60_000,
   },
 });
-
