@@ -87,6 +87,7 @@ $RECYCLE.BIN/
 site/
 gh-pages/
 !/.github/badges/
+codex-local/
 
 # --- Temporary project artifacts ---
 scripts/tmp/
