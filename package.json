@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:test": "cross-env NODE_ENV=test next dev",
     "build": "next build",
     "start": "next start",
     "prepare": "husky",
@@ -14,8 +15,10 @@
     "test:ui": "vitest",
     "test:e2e": "npx playwright test --config=playwright.config.ts",
     "test:e2e:headed": "playwright test --headed",
-    "test:e2e:debug": "playwright test --debug"
-  },
+    "test:e2e:debug": "playwright test --debug",
+    "codex:build": "node codex/generate.js",
+    "codex:preview": "npx serve codex-local"
+ },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": "eslint --fix"
   },
@@ -46,6 +49,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "bcryptjs": "^3.0.3",
+    "cross-env": "^10.1.0",
     "eslint": "^9.37.0",
     "eslint-config-next": "15.5.5",
     "husky": "^9.1.7",
