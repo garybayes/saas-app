@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { webcrypto } from "crypto"; // Web Crypto for Node
+import { encrypt } from "../src/lib/crypto.ts";
 
 const crypto = webcrypto;
 const prisma = new PrismaClient();
