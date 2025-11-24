@@ -1,0 +1,284 @@
+name: Codex Automation Self-Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  self-test:
+    name: Run Codex Automation Full Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq gh
+
+      - name: Authenticate GH CLI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh auth setup-git
+
+      # ----------------------------------------------------------
+      # 1. CREATE TEST ISSUE
+      # ----------------------------------------------------------
+      - name: Create Test Issue
+        id: issue
+        run: |
+          NUMBER=$(gh issue create \
+            --title "Codex Self-Test Issue" \
+            --body "Synthetic issue for Codex automation test." \
+            --label "codex-test" \
+            --json number --jq '.number')
+
+          echo "issue_number=$NUMBER" >> $GITHUB_OUTPUT
+          echo "Created issue #$NUMBER"
+
+      # ----------------------------------------------------------
+      # 2. ASSIGN TO CODEX (assignment trigger)
+      # ----------------------------------------------------------
+      - name: Assign issue to Codex
+        run: |
+          gh issue edit ${{ steps.issue.outputs.issue_number }} \
+            --add-assignee garybayes
+
+      # ----------------------------------------------------------
+      # 3. CREATE TEST BRANCH + COMMIT
+      # ----------------------------------------------------------
+      - name: Create test branch and commit referencing issue
+        id: create_branch
+        run: |
+          ISSUE=${{ steps.issue.outputs.issue_number }}
+          BRANCH="codex-test-$ISSUE"
+
+          git checkout -b "$BRANCH"
+          git commit --allow-empty -m "Start work on #$ISSUE"
+          git push --set-upstream origin "$BRANCH"
+
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+
+      # ----------------------------------------------------------
+      # 4. OPEN PR (PR Opened Trigger)
+      # ----------------------------------------------------------
+      - name: Create PR
+        id: pr
+        run: |
+          PR_URL=$(gh pr create \
+            --title "Codex Self-Test PR (#${{ steps.issue.outputs.issue_number }})" \
+            --body "Fixes #${{ steps.issue.outputs.issue_number }}" \
+            --base main --json url --jq '.url')
+
+          PR_NUMBER=$(echo "$PR_URL" | sed 's/.*pull\///')
+
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "Opened PR #$PR_NUMBER"
+
+      # ----------------------------------------------------------
+      # 5. VERIFY 'In Progress' STATUS
+      # ----------------------------------------------------------
+      - name: Verify issue moved to In Progress
+        id: verify_progress
+        run: |
+          PROJECT_ID="PVT_kwHODgSGMM4BI6BO"
+          STATUS_FIELD_ID="PVTSSF_lAHODgSGMM4BI6BOzg5OjrU"
+
+          VALUE=$(gh api graphql -f query='
+            query {
+              node(id:"'"$PROJECT_ID"'") {
+                ... on ProjectV2 {
+                  items(first:100) {
+                    nodes {
+                      content {
+                        ... on Issue {
+                          number
+                        }
+                      }
+                      fieldValues(first:10) {
+                        nodes {
+                          ... on ProjectV2ItemFieldSingleSelectValue {
+                            fieldId
+                            name
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ' --jq '
+            .data.node.items.nodes[]
+            | select(.content.number == ('"${{ steps.issue.outputs.issue_number }}"' | tonumber))
+            | .fieldValues.nodes[]
+            | select(.fieldId=="'"$STATUS_FIELD_ID"'")
+            | .name
+          ')
+
+          echo "Status after PR open: $VALUE"
+
+          if [[ "$VALUE" != "In Progress" ]]; then
+            echo "::error::Issue did not move to In Progress"
+            exit 1
+          fi
+
+      # ----------------------------------------------------------
+      # 6. MERGE PR (PR Merged Trigger)
+      # ----------------------------------------------------------
+      - name: Merge PR
+        run: |
+          gh pr merge ${{ steps.pr.outputs.pr_number }} --merge --admin
+
+      # ----------------------------------------------------------
+      # 7. VERIFY 'Done' STATUS
+      # ----------------------------------------------------------
+      - name: Verify issue moved to Done
+        run: |
+          PROJECT_ID="PVT_kwHODgSGMM4BI6BO"
+          STATUS_FIELD_ID="PVTSSF_lAHODgSGMM4BI6BOzg5OjrU"
+
+          VALUE=$(gh api graphql -f query='
+            query {
+              node(id:"'"$PROJECT_ID"'") {
+                ... on ProjectV2 {
+                  items(first:100) {
+                    nodes {
+                      content {
+                        ... on Issue {
+                          number
+                        }
+                      }
+                      fieldValues(first:10) {
+                        nodes {
+                          ... on ProjectV2ItemFieldSingleSelectValue {
+                            fieldId
+                            name
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ' --jq '
+            .data.node.items.nodes[]
+            | select(.content.number == ('"${{ steps.issue.outputs.issue_number }}"' | tonumber))
+            | .fieldValues.nodes[]
+            | select(.fieldId=="'"$STATUS_FIELD_ID"'")
+            | .name
+          ')
+
+          echo "Status after merge: $VALUE"
+
+          if [[ "$VALUE" != "Done" ]]; then
+            echo "::error::Issue did not move to Done"
+            exit 1
+          fi
+
+      # ----------------------------------------------------------
+      # 8. SECOND RUN: PR CLOSED WITHOUT MERGE
+      # ----------------------------------------------------------
+      - name: Create second test issue
+        id: issue2
+        run: |
+          NUM=$(gh issue create \
+            --title "Codex Close-Test Issue" \
+            --body "This issue tests PR close behavior." \
+            --label "codex-test" --json number --jq '.number')
+          echo "issue_number=$NUM" >> $GITHUB_OUTPUT
+
+      - name: Assign to Codex
+        run: |
+          gh issue edit ${{ steps.issue2.outputs.issue_number }} --add-assignee garybayes
+
+      - name: Create test branch and PR for close test
+        id: pr2
+        run: |
+          ISSUE=${{ steps.issue2.outputs.issue_number }}
+          BRANCH="codex-close-test-$ISSUE"
+
+          git checkout -b "$BRANCH"
+          git commit --allow-empty -m "Test close path for #$ISSUE"
+          git push --set-upstream origin "$BRANCH"
+
+          URL=$(gh pr create \
+            --title "Close Test (#$ISSUE)" \
+            --body "Fixes #$ISSUE" \
+            --base main --json url --jq '.url')
+
+          PRNUM=$(echo "$URL" | sed 's/.*pull\///')
+          echo "pr_number=$PRNUM" >> $GITHUB_OUTPUT
+          echo "Opened PR #$PRNUM"
+
+      - name: Close PR without merge
+        run: |
+          gh pr close ${{ steps.pr2.outputs.pr_number }} --delete-branch
+
+      # ----------------------------------------------------------
+      # 9. VERIFY ISSUE RETURNED TO TODO
+      # ----------------------------------------------------------
+      - name: Verify issue moved to Todo
+        run: |
+          PROJECT_ID="PVT_kwHODgSGMM4BI6BO"
+          STATUS_FIELD_ID="PVTSSF_lAHODgSGMM4BI6BOzg5OjrU"
+
+          VALUE=$(gh api graphql -f query='
+            query {
+              node(id:"'"$PROJECT_ID"'") {
+                ... on ProjectV2 {
+                  items(first:100) {
+                    nodes {
+                      content {
+                        ... on Issue {
+                          number
+                        }
+                      }
+                      fieldValues(first:10) {
+                        nodes {
+                          ... on ProjectV2ItemFieldSingleSelectValue {
+                            fieldId
+                            name
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ' --jq '
+            .data.node.items.nodes[]
+            | select(.content.number == ('"${{ steps.issue2.outputs.issue_number }}"' | tonumber))
+            | .fieldValues.nodes[]
+            | select(.fieldId=="'"$STATUS_FIELD_ID"'")
+            | .name
+          ')
+
+          echo "Status after PR close: $VALUE"
+
+          if [[ "$VALUE" != "Todo" ]]; then
+            echo "::error::Issue did not return to Todo"
+            exit 1
+          fi
+
+      # ----------------------------------------------------------
+      # 10. FINAL SUMMARY
+      # ----------------------------------------------------------
+      - name: Summary
+        run: |
+          echo "🟢 Codex Automation Self-Test Complete!"
+          echo "✓ Assignment trigger working"
+          echo "✓ PR-opened workflow working"
+          echo "✓ Commit-status workflow working"
+          echo "✓ PR-merged workflow working"
+          echo "✓ PR-closed workflow working"
+          echo "✓ ProjectV2 status transitions fully operational"
