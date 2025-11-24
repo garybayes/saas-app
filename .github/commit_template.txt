@@ -1,0 +1,13 @@
+# Commit Title (short, clear)
+# Example:
+#   Fix workflow JSON validation (#12)
+
+# Commit Description (what changed and why)
+# Provide a brief explanation of the change.
+# If the commit relates to an issue, reference it using:
+#   - Fixes #<issue>
+#   - Implements #<issue>
+#   - Ref #<issue>
+
+# Notes
+# Add context for Codex or future maintainers.

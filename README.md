@@ -163,6 +163,73 @@ Branch Protection Policy Guide
 
 WSL Setup for Codex Rebuild
 
+---
+
+# Codex Automation Overview
+
+This repository includes a fully automated workflow that synchronizes Issues, Pull Requests, and ProjectV2 status fields. Codex is able to manage Sprint development and Dashboard enhancements without manual board updates.
+
+## How It Works
+
+### 1. Issues
+- When an issue is created, it is automatically added to the project board.
+- The issue begins in **Todo**.
+
+### 2. Pull Requests
+Codex must reference issues in PR bodies using GitHub’s standard keywords:
+
+Examples:
+- `Fixes #12`
+- `Resolves #14`
+- `Implements #18`
+
+This triggers the automation workflows.
+
+#### PR Opened → In Progress
+All referenced issues are moved from **Todo → In Progress**.
+
+#### PR Merged → Done
+Referenced issues move from **In Progress → Done** when the PR is merged.
+
+#### PR Closed Without Merge → Todo
+If a PR is closed but not merged, all referenced issues move back to **Todo**.
+
+### 3. Commits (Optional)
+If commit messages include issue numbers (e.g., `Ref #12`), issues automatically move to **In Progress** even before a PR is opened.
+
+### 4. Manual Board Reset
+If needed, run:
+./scripts/reset-project-board.sh
+
+
+This moves all issues back to **Todo**.
+
+### 5. Helper Script
+All status updates are handled via:
+
+
+
+./scripts/set-project-status.sh <issue> <todo|inprogress|done>
+
+
+This script talks directly to GitHub’s GraphQL API.
+
+---
+
+# Codex Development Workflow (Summary)
+
+1. Codex picks up an Issue from the **Todo** column.  
+2. Codex opens a Pull Request describing the work and listing linked Issues.  
+3. The automation moves the linked Issues to **In Progress**.  
+4. Codex finishes work and merges the PR.  
+5. The automation moves linked Issues to **Done**.  
+6. Codex continues with the next issue automatically.
+
+---
+
+This system keeps the project board fully updated with zero manual interaction, even during parallel workstreams such as Sprint 5 completion and Codex Dashboard V2.
+
+
 👤 Maintainer
 
 Gary G. Bayes, BABA, MBA

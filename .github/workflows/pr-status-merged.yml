@@ -1,0 +1,24 @@
+name: Update Issue Status On PR Merge
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  update-status:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract issue numbers from PR body
+        id: extract
+        run: |
+          echo "LIST=$(echo '${{ github.event.pull_request.body }}' | grep -oE '#[0-9]+' | tr -d '#')" >> $GITHUB_OUTPUT
+
+      - name: Move issues to Done
+        if: ${{ steps.extract.outputs.LIST != '' }}
+        run: |
+          for NUM in ${{ steps.extract.outputs.LIST }}; do
+            ./scripts/set-project-status.sh "$NUM" done
+          done

@@ -1,0 +1,39 @@
+name: Update Issue Status On Commit
+
+on:
+  push:
+    branches:
+      - main
+      - sprint-*
+      - codex-*
+      - feature/*
+
+permissions:
+  contents: read
+  issues: write
+  project: write
+
+jobs:
+  update_status:
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract issue numbers from commit messages
+        id: extract
+        run: |
+          LOG=$(git log -1 --pretty=format:%B)
+          LIST=$(echo "$LOG" | grep -oE '#[0-9]+' | tr -d '#')
+          echo "LIST=$LIST" >> $GITHUB_OUTPUT
+
+      - name: Move linked issues to In Progress
+        if: ${{ steps.extract.outputs.LIST != '' }}
+        run: |
+          for NUM in ${{ steps.extract.outputs.LIST }}; do
+            echo "Commit references issue #$NUM → In Progress"
+            ./scripts/set-project-status.sh "$NUM" inprogress
+          done

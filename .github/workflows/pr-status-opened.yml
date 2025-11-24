@@ -1,0 +1,38 @@
+name: Update Issue Status On PR Open
+
+on:
+  pull_request:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  project: write
+
+jobs:
+  update_status:
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract issue numbers from PR body
+        id: extract
+        run: |
+          BODY='${{ github.event.pull_request.body }}'
+          echo "BODY=$BODY"
+          # Extract #123 patterns
+          LIST=$(echo "$BODY" | grep -oE '#[0-9]+' | tr -d '#')
+          echo "LIST=$LIST" >> $GITHUB_OUTPUT
+
+      - name: Move linked issues to In Progress
+        if: ${{ steps.extract.outputs.LIST != '' }}
+        run: |
+          for NUM in ${{ steps.extract.outputs.LIST }}; do
+            echo "Moving issue #$NUM → In Progress"
+            ./scripts/set-project-status.sh "$NUM" inprogress
+          done

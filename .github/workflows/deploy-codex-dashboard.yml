@@ -1,13 +1,18 @@
 name: Deploy Codex Dashboard
 
 on:
+  workflow_dispatch:
   push:
     branches:
-      - main        # Deploy whenever main updates manually
-  workflow_dispatch: # Also allow manual redeploy
+      - main
+    paths:
+      - "codex/**"
+      - ".github/workflows/deploy-codex-dashboard.yml"
 
 permissions:
-  contents: write   # Required to push to gh-pages
+  contents: write    # Required for gh-pages
+  pages: write
+  id-token: write
 
 jobs:
   build-and-deploy:
@@ -17,29 +22,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # Required for pushing a subtree
+          fetch-depth: 0   # Required for release notes
 
-      - name: Install Node
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Generate Codex Dashboard
+      - name: Build Codex Dashboard
         run: npm run codex:build
 
-      - name: Verify dashboard output
-        run: |
-          echo "Listing generated Codex dashboard files"
-          ls -R codex-build
+      - name: Display build output
+        run: ls -R codex-build
 
-      - name: Deploy to gh-pages branch
-        uses: peaceiris/actions-gh-pages@v4
+      - name: Upload to GitHub Pages artifact store
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
-          publish_dir: ./codex-build
-          force_orphan: false   # Keeps commit history if desired
-          commit_message: "Update Codex dashboard"
+          path: ./codex-build
+
+  deploy:
+    needs: build-and-deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

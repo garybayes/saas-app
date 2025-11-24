@@ -1,0 +1,19 @@
+name: Auto-Assign Codex to New Issues
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  assign:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Assign Codex AI Bot
+        run: |
+          gh issue edit ${{ github.event.issue.number }} \
+            --add-assignee "garybayes" \
+            --repo garybayes/saas-app

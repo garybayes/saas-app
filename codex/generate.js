@@ -1,59 +1,164 @@
-import fs from "fs";
-import path from "path";
+/**
+ * Codex Dashboard Generator (FINAL VERSION)
+ * -----------------------------------------
+ * Produces dashboard data + releases + metrics in:
+ *   /codex-build/codex-data.json
+ *   /codex-build/index.html
+ *
+ * - Safe to run locally (gh optional)
+ * - Fully CI-compatible
+ * - No dependence on codex-local
+ */
 
-// ---- 1. Determine output directory ----
-const OUTPUT_DIR =
-  process.env.CODEX_OUTPUT_DIR ||
-  "codex-build"; // default local build folder
+const fs = require("fs");
+const path = require("path");
+const { execSync } = require("child_process");
 
-const outDir = path.join(process.cwd(), OUTPUT_DIR);
+const BUILD_DIR = path.join(process.cwd(), "codex-build");
+const DATA_FILE = path.join(BUILD_DIR, "codex-data.json");
+const INDEX_FILE = path.join(BUILD_DIR, "index.html");
 
-if (!fs.existsSync(outDir)) {
-  fs.mkdirSync(outDir, { recursive: true });
-  console.log(`📁 Created directory: ${OUTPUT_DIR}`);
-} else {
-  console.log(`📁 Using existing directory: ${OUTPUT_DIR}`);
+/* ------------------------------------------------
+   Utility: Safe JSON loading
+---------------------------------------------------- */
+function loadJSON(filename, fallback = {}) {
+  try {
+    return JSON.parse(fs.readFileSync(filename, "utf-8"));
+  } catch (err) {
+    return fallback;
+  }
 }
 
-// ---- 2. Collect test + CI + metrics data ----
-// For now we stub it until Codex integration is ready.
-// These can later be swapped for real collectors.
+/* ------------------------------------------------
+   Fetch Releases from GitHub CLI (if available)
+---------------------------------------------------- */
+function fetchReleases() {
+  try {
+    // Check if gh CLI exists
+    execSync("gh --version", { stdio: "ignore" });
 
-const data = {
-  timestamp: new Date().toISOString(),
-  message: "Local Codex Dashboard build OK",
-  source: "local-build",
+    console.log("📦 Fetching GitHub Releases...");
+    const raw = execSync(
+      "gh release list --limit 20 --json tagName,name,createdAt,body",
+      { encoding: "utf-8" }
+    );
+    return JSON.parse(raw);
+  } catch (err) {
+    console.log("⚠️ Release fetch skipped (gh unavailable)", err.message);
+    return [];
+  }
+}
+
+/* ------------------------------------------------
+   Ensure build directory exists
+---------------------------------------------------- */
+if (!fs.existsSync(BUILD_DIR)) {
+  console.log("📁 Creating codex-build directory...");
+  fs.mkdirSync(BUILD_DIR);
+} else {
+  console.log("📁 Using existing codex-build directory.");
+}
+
+/* ------------------------------------------------
+   Base dashboard structure
+---------------------------------------------------- */
+let data = {
+  generatedAt: new Date().toISOString(),
+  releases: [],
+  metrics: {},
 };
 
-// Write JSON
-fs.writeFileSync(
-  path.join(outDir, "codex-data.json"),
-  JSON.stringify(data, null, 2)
-);
+/* ------------------------------------------------
+   Import existing codex-data.json if present
+---------------------------------------------------- */
+if (fs.existsSync(DATA_FILE)) {
+  console.log("🔄 Loading existing dashboard data...");
+  const existing = loadJSON(DATA_FILE);
+  data = { ...existing, ...data };
+}
 
-// ---- 3. Create minimal dashboard HTML (placeholder) ----
-const html = `
+/* ------------------------------------------------
+   Fetch Release Notes and attach to dashboard JSON
+---------------------------------------------------- */
+data.releases = fetchReleases();
+
+/* ------------------------------------------------
+   Write updated dashboard JSON
+---------------------------------------------------- */
+fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+console.log(`✅ Dashboard data written → ${DATA_FILE}`);
+
+/* ------------------------------------------------
+   Generate index.html (Dashboard Shell)
+   Uses JS to load codex-data.json for UI rendering
+---------------------------------------------------- */
+const htmlTemplate = `
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Codex Dashboard - Local</title>
-  <meta charset="utf-8">
-  <style>
-    body { font-family: Arial; padding: 40px; background: #f8f9fa; }
-    .box { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    h1 { margin-top: 0; }
-  </style>
+    <meta charset="UTF-8" />
+    <title>Codex Dashboard</title>
+    <style>
+      body {
+        background: #121212;
+        color: #eee;
+        font-family: sans-serif;
+        padding: 20px;
+      }
+      .panel {
+        margin-bottom: 3rem;
+      }
+      .release-item {
+        padding: 1rem 0;
+      }
+      .release-body {
+        white-space: pre-wrap;
+        background: #1e1e1e;
+        padding: .75rem;
+        border-radius: .5rem;
+      }
+      .release-date {
+        font-size: .85rem;
+        color: #aaa;
+      }
+    </style>
 </head>
 <body>
-  <div class="box">
-    <h1>📊 Codex Dashboard (Local Build)</h1>
-    <p>This dashboard was generated locally.</p>
-    <pre>${JSON.stringify(data, null, 2)}</pre>
-  </div>
+    <h1>Codex Dashboard</h1>
+    <p>Generated at ${new Date().toLocaleString()}</p>
+
+    <section class="panel">
+      <h2>📦 Release Notes</h2>
+      <div id="release-notes">Loading...</div>
+    </section>
+
+    <script>
+      fetch("codex-data.json")
+        .then(r => r.json())
+        .then(data => {
+          const container = document.getElementById("release-notes");
+
+          if (!data.releases || data.releases.length === 0) {
+            container.innerHTML = "<p>No releases found.</p>";
+            return;
+          }
+
+          container.innerHTML = data.releases.map(r => \`
+            <div class="release-item">
+              <h3>\${r.name}</h3>
+              <p class="release-date">\${new Date(r.createdAt).toLocaleString()}</p>
+              <pre class="release-body">\${r.body || "(no release notes)"}</pre>
+              <hr/>
+            </div>
+          \`).join("");
+        });
+    </script>
+
 </body>
 </html>
 `;
 
-fs.writeFileSync(path.join(outDir, "index.html"), html);
+fs.writeFileSync(INDEX_FILE, htmlTemplate);
+console.log(`✅ Dashboard HTML written → ${INDEX_FILE}`);
 
-console.log(`✅ Codex Dashboard generated at: ${OUTPUT_DIR}/index.html`);
+console.log("\n🎉 Codex Dashboard generation complete!");

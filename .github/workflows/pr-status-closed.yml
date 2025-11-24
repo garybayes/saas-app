@@ -1,0 +1,62 @@
+name: Update Issue Status On PR Close
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  project: write
+
+jobs:
+  merged_pr:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract issue numbers from PR body
+        id: extract
+        run: |
+          BODY='${{ github.event.pull_request.body }}'
+          LIST=$(echo "$BODY" | grep -oE '#[0-9]+' | tr -d '#')
+          echo "LIST=$LIST" >> $GITHUB_OUTPUT
+
+      - name: Move linked issues to Done
+        if: ${{ steps.extract.outputs.LIST != '' }}
+        run: |
+          for NUM in ${{ steps.extract.outputs.LIST }}; do
+            echo "Moving issue #$NUM → Done"
+            ./scripts/set-project-status.sh "$NUM" done
+          done
+
+  closed_unmerged_pr:
+    if: github.event.pull_request.merged == false
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract issue numbers from PR body
+        id: extract
+        run: |
+          BODY='${{ github.event.pull_request.body }}'
+          LIST=$(echo "$BODY" | grep -oE '#[0-9]+' | tr -d '#')
+          echo "LIST=$LIST" >> $GITHUB_OUTPUT
+
+      - name: Move linked issues back to Todo
+        if: ${{ steps.extract.outputs.LIST != '' }}
+        run: |
+          for NUM in ${{ steps.extract.outputs.LIST }}; do
+            echo "Moving issue #$NUM → Todo (PR closed, not merged)"
+            ./scripts/set-project-status.sh "$NUM" todo
+          done
