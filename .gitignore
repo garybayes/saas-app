@@ -90,6 +90,7 @@ site/
 gh-pages/
 !/.github/badges/
 codex-local/
+codex-build/
 
 # --- Temporary project artifacts ---
 scripts/tmp/
