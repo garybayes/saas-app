@@ -1,0 +1,70 @@
+name: Issue Assignment Trigger
+
+on:
+  issues:
+    types:
+      - assigned
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  move-to-in-progress:
+    name: Move Issue to In Progress
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check if Codex is assigned
+        id: check
+        run: |
+          if [[ "${{ github.event.assignee.login }}" != "garybayes" ]]; then
+            echo "assigned_to_codex=false" >> $GITHUB_OUTPUT
+          else
+            echo "assigned_to_codex=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Stop if not Codex
+        if: ${{ steps.check.outputs.assigned_to_codex == 'false' }}
+        run: echo "Not assigned to Codex. Exiting."
+
+      - name: Move issue into In Progress
+        if: ${{ steps.check.outputs.assigned_to_codex == 'true' }}
+        run: |
+          echo "Moving issue to In Progress..."
+          ISSUE_ID=$(gh api graphql -f query='
+            query {
+              repository(owner:"garybayes", name:"saas-app") {
+                issue(number: '${{ github.event.issue.number }}') {
+                  id
+                }
+              }
+            }
+          ' --jq '.data.repository.issue.id')
+
+          PROJECT_ID="PVT_kwHODgSGMM4BI6BO"
+          STATUS_FIELD_ID="PVTSSF_lAHODgSGMM4BI6BOzg5OjrU"
+          OPTION_INPROGRESS_ID="47fc9ee4"
+
+          gh api graphql -f query='
+            mutation(
+              $project:ID!,
+              $item:ID!,
+              $field:ID!,
+              $option:String!
+            ){
+              updateProjectV2ItemFieldValue(
+                input:{
+                  projectId:$project,
+                  itemId:$item,
+                  fieldId:$field,
+                  value:{singleSelectOptionId:$option}
+                }
+              ) {
+                clientMutationId
+              }
+            }
+          ' -F project=$PROJECT_ID -F item=$ISSUE_ID -F field=$STATUS_FIELD_ID -F option=$OPTION_INPROGRESS_ID
+
+          echo "Issue moved to In Progress."
+

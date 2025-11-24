@@ -1,39 +1,66 @@
-name: Update Issue Status On Commit
+name: Commit Status Update
 
 on:
   push:
     branches:
       - main
       - sprint-*
-      - codex-*
-      - feature/*
 
 permissions:
-  contents: read
   issues: write
-  project: write
+  contents: read
 
 jobs:
-  update_status:
+  update:
     runs-on: ubuntu-latest
 
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Extract issue numbers from commit messages
+      - name: Extract issue numbers
         id: extract
         run: |
-          LOG=$(git log -1 --pretty=format:%B)
-          LIST=$(echo "$LOG" | grep -oE '#[0-9]+' | tr -d '#')
-          echo "LIST=$LIST" >> $GITHUB_OUTPUT
+          echo "numbers=$(git log -1 --pretty=%B | grep -o '#[0-9]\+' | tr -d '#')" >> $GITHUB_OUTPUT
 
-      - name: Move linked issues to In Progress
-        if: ${{ steps.extract.outputs.LIST != '' }}
+      - name: Skip if no issues
+        if: ${{ steps.extract.outputs.numbers == '' }}
+        run: echo "No issue references found in commit."
+
+      - name: Move issues to In Progress
+        if: ${{ steps.extract.outputs.numbers != '' }}
         run: |
-          for NUM in ${{ steps.extract.outputs.LIST }}; do
-            echo "Commit references issue #$NUM → In Progress"
-            ./scripts/set-project-status.sh "$NUM" inprogress
+          PROJECT_ID="PVT_kwHODgSGMM4BI6BO"
+          STATUS_FIELD_ID="PVTSSF_lAHODgSGMM4BI6BOzg5OjrU"
+          OPTION_INPROGRESS_ID="47fc9ee4"
+
+          for NUM in ${{ steps.extract.outputs.numbers }}; do
+            echo "Processing issue #$NUM"
+
+            ISSUE_ID=$(gh api graphql -f query='
+              query {
+                repository(owner:"garybayes", name:"saas-app") {
+                  issue(number: '$NUM') {
+                    id
+                  }
+                }
+              }
+            ' --jq '.data.repository.issue.id')
+
+            gh api graphql -f query='
+              mutation(
+                $project:ID!,
+                $item:ID!,
+                $field:ID!,
+                $option:String!
+              ){
+                updateProjectV2ItemFieldValue(
+                  input:{
+                    projectId:$project,
+                    itemId:$item,
+                    fieldId:$field,
+                    value:{singleSelectOptionId:$option}
+                  }
+                ) {
+                  clientMutationId
+                }
+              }
+            ' -F project=$PROJECT_ID -F item=$ISSUE_ID -F field=$STATUS_FIELD_ID -F option=$OPTION_INPROGRESS_ID
           done
