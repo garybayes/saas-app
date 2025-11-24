@@ -1,24 +1,62 @@
-name: Update Issue Status On PR Merge
+name: PR Status - Merged
+
 on:
   pull_request:
     types: [closed]
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
-  update-status:
-    if: github.event.pull_request.merged == true
+  move-to-done:
+    if: ${{ github.event.pull_request.merged == true }}
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Extract issue numbers from PR body
+      - name: Extract referenced issues
         id: extract
         run: |
-          echo "LIST=$(echo '${{ github.event.pull_request.body }}' | grep -oE '#[0-9]+' | tr -d '#')" >> $GITHUB_OUTPUT
+          echo "numbers=$(echo '${{ github.event.pull_request.body }}' | grep -o '#[0-9]\+' | tr -d '#')" >> $GITHUB_OUTPUT
+
+      - name: Skip if no issues
+        if: ${{ steps.extract.outputs.numbers == '' }}
+        run: echo "No issues found."
 
       - name: Move issues to Done
-        if: ${{ steps.extract.outputs.LIST != '' }}
+        if: ${{ steps.extract.outputs.numbers != '' }}
         run: |
-          for NUM in ${{ steps.extract.outputs.LIST }}; do
-            ./scripts/set-project-status.sh "$NUM" done
+          PROJECT_ID="PVT_kwHODgSGMM4BI6BO"
+          STATUS_FIELD_ID="PVTSSF_lAHODgSGMM4BI6BOzg5OjrU"
+          OPTION_DONE_ID="98236657"
+
+          for NUM in ${{ steps.extract.outputs.numbers }}; do
+            echo "Processing issue #$NUM"
+
+            ISSUE_ID=$(gh api graphql -f query='
+              {
+                repository(owner:"garybayes", name:"saas-app") {
+                  issue(number: '$NUM') { id }
+                }
+              }
+            ' --jq '.data.repository.issue.id')
+
+            gh api graphql -f query='
+              mutation(
+                $project:ID!,
+                $item:ID!,
+                $field:ID!,
+                $option:String!
+              ){
+                updateProjectV2ItemFieldValue(
+                  input:{
+                    projectId:$project,
+                    itemId:$item,
+                    fieldId:$field,
+                    value:{singleSelectOptionId:$option}
+                  }
+                ) { clientMutationId }
+              }
+            ' -F project=$PROJECT_ID -F item=$ISSUE_ID -F field=$STATUS_FIELD_ID -F option=$OPTION_DONE_ID
+
           done

@@ -1,4 +1,4 @@
-name: Update Issue Status On PR Close
+name: PR Status - Closed (Without Merge)
 
 on:
   pull_request:
@@ -7,56 +7,56 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
-  project: write
 
 jobs:
-  merged_pr:
-    if: github.event.pull_request.merged == true
+  move-to-todo:
+    if: ${{ github.event.pull_request.merged == false }}
     runs-on: ubuntu-latest
 
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Extract issue numbers from PR body
+      - name: Extract referenced issues
         id: extract
         run: |
-          BODY='${{ github.event.pull_request.body }}'
-          LIST=$(echo "$BODY" | grep -oE '#[0-9]+' | tr -d '#')
-          echo "LIST=$LIST" >> $GITHUB_OUTPUT
+          echo "numbers=$(echo '${{ github.event.pull_request.body }}' | grep -o '#[0-9]\+' | tr -d '#')" >> $GITHUB_OUTPUT
 
-      - name: Move linked issues to Done
-        if: ${{ steps.extract.outputs.LIST != '' }}
+      - name: Skip if PR does not reference issues
+        if: ${{ steps.extract.outputs.numbers == '' }}
+        run: echo "No linked issues found."
+
+      - name: Move issues back to Todo
+        if: ${{ steps.extract.outputs.numbers != '' }}
         run: |
-          for NUM in ${{ steps.extract.outputs.LIST }}; do
-            echo "Moving issue #$NUM → Done"
-            ./scripts/set-project-status.sh "$NUM" done
-          done
+          PROJECT_ID="PVT_kwHODgSGMM4BI6BO"
+          STATUS_FIELD_ID="PVTSSF_lAHODgSGMM4BI6BOzg5OjrU"
+          OPTION_TODO_ID="f75ad846"
 
-  closed_unmerged_pr:
-    if: github.event.pull_request.merged == false
-    runs-on: ubuntu-latest
+          for NUM in ${{ steps.extract.outputs.numbers }}; do
+            echo "Resetting issue #$NUM"
 
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            ISSUE_ID=$(gh api graphql -f query='
+              {
+                repository(owner:"garybayes", name:"saas-app") {
+                  issue(number: '$NUM') { id }
+                }
+              }
+            ' --jq '.data.repository.issue.id')
 
-    steps:
-      - uses: actions/checkout@v4
+            gh api graphql -f query='
+              mutation(
+                $project:ID!,
+                $item:ID!,
+                $field:ID!,
+                $option:String!
+              ){
+                updateProjectV2ItemFieldValue(
+                  input:{
+                    projectId:$project,
+                    itemId:$item,
+                    fieldId:$field,
+                    value:{singleSelectOptionId:$option}
+                  }
+                ) { clientMutationId }
+              }
+            ' -F project=$PROJECT_ID -F item=$ISSUE_ID -F field=$STATUS_FIELD_ID -F option=$OPTION_TODO_ID
 
-      - name: Extract issue numbers from PR body
-        id: extract
-        run: |
-          BODY='${{ github.event.pull_request.body }}'
-          LIST=$(echo "$BODY" | grep -oE '#[0-9]+' | tr -d '#')
-          echo "LIST=$LIST" >> $GITHUB_OUTPUT
-
-      - name: Move linked issues back to Todo
-        if: ${{ steps.extract.outputs.LIST != '' }}
-        run: |
-          for NUM in ${{ steps.extract.outputs.LIST }}; do
-            echo "Moving issue #$NUM → Todo (PR closed, not merged)"
-            ./scripts/set-project-status.sh "$NUM" todo
           done
