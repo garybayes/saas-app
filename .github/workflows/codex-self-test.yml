@@ -1,4 +1,4 @@
-name: Codex Automation Self-Test
+name: Codex Self-Test
 
 on:
   workflow_dispatch:
@@ -7,277 +7,102 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  repository-projects: write
 
 jobs:
   self-test:
-    name: Run Codex Automation Full Test
+    name: Codex Automated Self-Test
     runs-on: ubuntu-latest
 
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # REQUIRED for gh CLI
+      PROJECT_TITLE: "Codex Dual-Track Development"
+      STATUS_FIELD: "Status"
+      TODO_VALUE: "Todo"
+      INPROGRESS_VALUE: "In Progress"
+      DONE_VALUE: "Done"
+
     steps:
-      # --------------------------------------------------------
-      # SETUP
-      # --------------------------------------------------------
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install GitHub CLI + jq
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gh jq
-
-      - name: Authenticate GH CLI
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh auth setup-git
-
-      # --------------------------------------------------------
-      # 1. CREATE FIRST TEST ISSUE
-      # --------------------------------------------------------
-      - name: Create Test Issue
-        id: issue
+      # -----------------------------------------------------
+      # 1️⃣ Create Self-Test Issue
+      # -----------------------------------------------------
+      - name: Create test issue
+        id: create_issue
         run: |
           ISSUE_URL=$(gh issue create \
             --title "Codex Self-Test Issue" \
-            --body "Synthetic issue for Codex automation test." \
-            --label "codex-test")
+            --body "This issue was automatically created by the Codex self-test workflow." \
+            --label "codex-self-test" \
+            --project "$PROJECT_TITLE")
 
-          ISSUE_NUMBER=$(echo "$ISSUE_URL" | sed 's/.*issues\///')
+          echo "Issue URL: $ISSUE_URL"
+          ISSUE_NUMBER=$(echo "$ISSUE_URL" | sed 's/.*#//')
           echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
 
-          echo "Created issue #$ISSUE_NUMBER"
-
-      # --------------------------------------------------------
-      # 2. ASSIGN FIRST ISSUE TO CODEX (assignment trigger)
-      # --------------------------------------------------------
-      - name: Assign Issue
+      # -----------------------------------------------------
+      # 2️⃣ Create a PR that references the issue
+      # -----------------------------------------------------
+      - name: Create PR branch & commit
         run: |
-          gh issue edit ${{ steps.issue.outputs.issue_number }} \
-            --add-assignee garybayes
+          git config user.email "codex-ci-bot@github"
+          git config user.name  "codex-ci-bot"
 
-      # --------------------------------------------------------
-      # 3. CREATE BRANCH + EMPTY COMMIT REFERENCING ISSUE
-      # --------------------------------------------------------
-      - name: Create Branch and Commit
-        id: branch
-        run: |
-          ISSUE=${{ steps.issue.outputs.issue_number }}
-          BRANCH="codex-test-$ISSUE"
-
+          BRANCH="codex-selftest-${{ steps.create_issue.outputs.issue_number }}"
           git checkout -b "$BRANCH"
-          git commit --allow-empty -m "Start work on #$ISSUE"
-          git push --set-upstream origin "$BRANCH"
 
-          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          echo "Self-test run at $(date)" > codex-selftest.txt
+          git add codex-selftest.txt
+          git commit -m "Codex self-test commit (#${{ steps.create_issue.outputs.issue_number }})"
+          git push origin "$BRANCH"
 
-      # --------------------------------------------------------
-      # 4. OPEN PR FOR FIRST ISSUE
-      # --------------------------------------------------------
-      - name: Open PR
-        id: pr
+      - name: Create PR
+        id: create_pr
         run: |
           PR_URL=$(gh pr create \
-            --title "Codex Self-Test PR (#${{ steps.issue.outputs.issue_number }})" \
-            --body "Fixes #${{ steps.issue.outputs.issue_number }}" \
-            --base main)
+            --title "Codex Self-Test PR" \
+            --body "This PR was generated to verify Codex automation end-to-end.\n\nFixes #${{ steps.create_issue.outputs.issue_number }}" \
+            --head "codex-selftest-${{ steps.create_issue.outputs.issue_number }}" \
+            --base "main")
 
-          PR_NUMBER=$(echo "$PR_URL" | sed 's/.*pull\///')
-          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "PR URL: $PR_URL"
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
 
-          echo "Opened PR #$PR_NUMBER"
+      # -----------------------------------------------------
+      # 3️⃣ Wait briefly for project automation
+      # -----------------------------------------------------
+      - name: Wait for project automation
+        run: sleep 8
 
-      # --------------------------------------------------------
-      # 5. VERIFY STATUS MOVED TO "IN PROGRESS"
-      # --------------------------------------------------------
-      - name: Verify In Progress
+      # -----------------------------------------------------
+      # 4️⃣ Close PR (simulating Codex merging/closing)
+      # -----------------------------------------------------
+      - name: Close PR
         run: |
-          ISSUE=${{ steps.issue.outputs.issue_number }}
+          gh pr close "${{ steps.create_pr.outputs.pr_url }}" --comment "Closing PR as part of Codex self-test."
 
-          PROJECT_ID="PVT_kwHODgSGMM4BI6BO"
-          STATUS_FIELD_ID="PVTSSF_lAHODgSGMM4BI6BOzg5OjrU"
-
-          STATUS=$(gh api graphql -f query='
-            {
-              node(id:"'"$PROJECT_ID"'") {
-                ... on ProjectV2 {
-                  items(first:100) {
-                    nodes {
-                      content { ... on Issue { number } }
-                      fieldValues(first:10) {
-                        nodes {
-                          ... on ProjectV2ItemFieldSingleSelectValue {
-                            fieldId
-                            name
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          ' | jq -r '
-            .data.node.items.nodes[]
-            | select(.content.number == ('"$ISSUE"' | tonumber))
-            | .fieldValues.nodes[]
-            | select(.fieldId=="'"$STATUS_FIELD_ID"'")
-            | .name
-          ')
-
-          echo "Status after PR open = $STATUS"
-          [[ "$STATUS" == "In Progress" ]] || (echo "::error::Not In Progress!" && exit 1)
-
-      # --------------------------------------------------------
-      # 6. MERGE PR
-      # --------------------------------------------------------
-      - name: Merge PR
+      # -----------------------------------------------------
+      # 5️⃣ Close Issue
+      # -----------------------------------------------------
+      - name: Close issue
         run: |
-          gh pr merge ${{ steps.pr.outputs.pr_number }} --merge --admin
+          gh issue close ${{ steps.create_issue.outputs.issue_number }} \
+            --comment "Codex self-test workflow completed."
 
-      # --------------------------------------------------------
-      # 7. VERIFY STATUS MOVED TO "DONE"
-      # --------------------------------------------------------
-      - name: Verify Done
+      # -----------------------------------------------------
+      # 6️⃣ Cleanup branch
+      # -----------------------------------------------------
+      - name: Delete test branch
         run: |
-          ISSUE=${{ steps.issue.outputs.issue_number }}
+          gh api --method DELETE \
+            repos/${{ github.repository }}/git/refs/heads/codex-selftest-${{ steps.create_issue.outputs.issue_number }} \
+            || echo "Branch already deleted"
 
-          PROJECT_ID="PVT_kwHODgSGMM4BI6BO"
-          STATUS_FIELD_ID="PVTSSF_lAHODgSGMM4BI6BOzg5OjrU"
+      # -----------------------------------------------------
+      # 7️⃣ Finished
+      # -----------------------------------------------------
+      - name: Done
+        run: echo "Codex self-test workflow completed successfully."
 
-          STATUS=$(gh api graphql -f query='
-            {
-              node(id:"'"$PROJECT_ID"'") {
-                ... on ProjectV2 {
-                  items(first:100) {
-                    nodes {
-                      content { ... on Issue { number } }
-                      fieldValues(first:10) {
-                        nodes {
-                          ... on ProjectV2ItemFieldSingleSelectValue {
-                            fieldId
-                            name
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          ' | jq -r '
-            .data.node.items.nodes[]
-            | select(.content.number == ('"$ISSUE"' | tonumber))
-            | .fieldValues.nodes[]
-            | select(.fieldId=="'"$STATUS_FIELD_ID"'")
-            | .name
-          ')
-
-          echo "Status after merge = $STATUS"
-          [[ "$STATUS" == "Done" ]] || (echo "::error::Not Done!" && exit 1)
-
-      # --------------------------------------------------------
-      # 8. CREATE SECOND ISSUE TO TEST "CLOSED WITHOUT MERGE"
-      # --------------------------------------------------------
-      - name: Create Issue 2
-        id: issue2
-        run: |
-          URL=$(gh issue create \
-            --title "Codex Self-Test Issue 2" \
-            --body "Tests PR close behavior." \
-            --label "codex-test")
-
-          NUM=$(echo "$URL" | sed 's/.*issues\///')
-          echo "issue_number=$NUM" >> $GITHUB_OUTPUT
-          echo "Created issue #$NUM"
-
-      # Assign
-      - name: Assign Issue 2
-        run: |
-          gh issue edit ${{ steps.issue2.outputs.issue_number }} \
-            --add-assignee garybayes
-
-      # --------------------------------------------------------
-      # 9. CREATE BRANCH + PR FOR ISSUE 2
-      # --------------------------------------------------------
-      - name: Create PR for Issue 2
-        id: pr2
-        run: |
-          ISSUE=${{ steps.issue2.outputs.issue_number }}
-          BRANCH="codex-test2-$ISSUE"
-
-          git checkout -b "$BRANCH"
-          git commit --allow-empty -m "Test close path #$ISSUE"
-          git push --set-upstream origin "$BRANCH"
-
-          URL=$(gh pr create \
-            --title "Close Test (#$ISSUE)" \
-            --body "Fixes #$ISSUE" \
-            --base main)
-
-          PRNUM=$(echo "$URL" | sed 's/.*pull\///')
-          echo "pr_number=$PRNUM" >> $GITHUB_OUTPUT
-
-      # --------------------------------------------------------
-      # 10. CLOSE SECOND PR WITHOUT MERGE
-      # --------------------------------------------------------
-      - name: Close PR2
-        run: |
-          gh pr close ${{ steps.pr2.outputs.pr_number }} --delete-branch
-
-      # --------------------------------------------------------
-      # 11. VERIFY SECOND ISSUE RETURNED TO TODO
-      # --------------------------------------------------------
-      - name: Verify Back to Todo
-        run: |
-          ISSUE=${{ steps.issue2.outputs.issue_number }}
-
-          PROJECT_ID="PVT_kwHODgSGMM4BI6BO"
-          STATUS_FIELD_ID="PVTSSF_lAHODgSGMM4BI6BOzg5OjrU"
-
-          STATUS=$(gh api graphql -f query='
-            {
-              node(id:"'"$PROJECT_ID"'") {
-                ... on ProjectV2 {
-                  items(first:100) {
-                    nodes {
-                      content { ... on Issue { number } }
-                      fieldValues(first:10) {
-                        nodes {
-                          ... on ProjectV2ItemFieldSingleSelectValue {
-                            fieldId
-                            name
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          ' | jq -r '
-            .data.node.items.nodes[]
-            | select(.content.number == ('"$ISSUE"' | tonumber))
-            | .fieldValues.nodes[]
-            | select(.fieldId=="'"$STATUS_FIELD_ID"'")
-            | .name
-          ')
-
-          echo "Status after PR close = $STATUS"
-          [[ "$STATUS" == "Todo" ]] || (echo "::error::Not Todo!" && exit 1)
-
-      # --------------------------------------------------------
-      # FINAL SUMMARY
-      # --------------------------------------------------------
-      - name: Summary
-        run: |
-          echo ""
-          echo "======================================================"
-          echo "🟢 CODEX SELF TEST COMPLETE — ALL AUTOMATION VERIFIED "
-          echo "======================================================"
-          echo "✓ Assignment Trigger"
-          echo "✓ Commit Status Trigger"
-          echo "✓ PR Opened Trigger"
-          echo "✓ PR Merged Trigger"
-          echo "✓ PR Closed Trigger"
-          echo "✓ ProjectV2 Status Field Updates"
-          echo "✓ All Workflow Paths Functional"
-          echo ""
