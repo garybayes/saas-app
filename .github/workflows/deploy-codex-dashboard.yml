@@ -1,0 +1,45 @@
+name: Deploy Codex Dashboard
+
+on:
+  push:
+    branches:
+      - main        # Deploy whenever main updates manually
+  workflow_dispatch: # Also allow manual redeploy
+
+permissions:
+  contents: write   # Required to push to gh-pages
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # Required for pushing a subtree
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Generate Codex Dashboard
+        run: npm run codex:build
+
+      - name: Verify dashboard output
+        run: |
+          echo "Listing generated Codex dashboard files"
+          ls -R codex-local
+
+      - name: Deploy to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./codex-local
+          force_orphan: false   # Keeps commit history if desired
+          commit_message: "Update Codex dashboard"
