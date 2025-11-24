@@ -33,13 +33,13 @@ jobs:
       - name: Verify dashboard output
         run: |
           echo "Listing generated Codex dashboard files"
-          ls -R codex-local
+          ls -R codex-build
 
       - name: Deploy to gh-pages branch
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
-          publish_dir: ./codex-local
+          publish_dir: ./codex-build
           force_orphan: false   # Keeps commit history if desired
           commit_message: "Update Codex dashboard"
