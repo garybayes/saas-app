@@ -2,107 +2,78 @@ name: Codex Self-Test
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *"  # Every 6 hours
 
 permissions:
   contents: write
   issues: write
   pull-requests: write
-  repository-projects: write
+  actions: read
 
 jobs:
-  self-test:
-    name: Codex Automated Self-Test
+  codex-self-test:
     runs-on: ubuntu-latest
-
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # REQUIRED for gh CLI
-      PROJECT_TITLE: "Codex Dual-Track Development"
-      STATUS_FIELD: "Status"
-      TODO_VALUE: "Todo"
-      INPROGRESS_VALUE: "In Progress"
-      DONE_VALUE: "Done"
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PROJECT_ID: "PVT_kwHODgSGMM4BI6BO"
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # -----------------------------------------------------
-      # 1️⃣ Create Self-Test Issue
-      # -----------------------------------------------------
+      # ----------------------------------------------------------
+      # 1. CREATE ISSUE INSIDE PROJECT
+      # ----------------------------------------------------------
       - name: Create test issue
         id: create_issue
         run: |
           ISSUE_URL=$(gh issue create \
             --title "Codex Self-Test Issue" \
-            --body "This issue was automatically created by the Codex self-test workflow." \
-            --label "codex-self-test" \
-            --project "$PROJECT_TITLE")
+            --body "Automated Codex self-test: verifying issue → project → PR → merge → close pipeline." \
+            --project "$PROJECT_ID")
 
           echo "Issue URL: $ISSUE_URL"
+
           ISSUE_NUMBER=$(echo "$ISSUE_URL" | sed 's/.*#//')
           echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
 
-      # -----------------------------------------------------
-      # 2️⃣ Create a PR that references the issue
-      # -----------------------------------------------------
-      - name: Create PR branch & commit
+      # ----------------------------------------------------------
+      # 2. CREATE BRANCH FOR PR
+      # ----------------------------------------------------------
+      - name: Create test branch
         run: |
-          git config user.email "codex-ci-bot@github"
-          git config user.name  "codex-ci-bot"
-
-          BRANCH="codex-selftest-${{ steps.create_issue.outputs.issue_number }}"
-          git checkout -b "$BRANCH"
-
-          echo "Self-test run at $(date)" > codex-selftest.txt
+          git switch -c codex-selftest-${{ steps.create_issue.outputs.issue_number }}
+          echo "Self-test $(date)" > codex-selftest.txt
           git add codex-selftest.txt
-          git commit -m "Codex self-test commit (#${{ steps.create_issue.outputs.issue_number }})"
-          git push origin "$BRANCH"
+          git commit -m "Codex self-test commit (issue #${{ steps.create_issue.outputs.issue_number }})"
+          git push origin HEAD
 
-      - name: Create PR
+      # ----------------------------------------------------------
+      # 3. OPEN PR REFERENCING ISSUE
+      # ----------------------------------------------------------
+      - name: Open self-test PR
         id: create_pr
         run: |
           PR_URL=$(gh pr create \
             --title "Codex Self-Test PR" \
-            --body "This PR was generated to verify Codex automation end-to-end.\n\nFixes #${{ steps.create_issue.outputs.issue_number }}" \
+            --body "This PR was automatically generated for Codex self-test.\n\nFixes #${{ steps.create_issue.outputs.issue_number }}" \
             --head "codex-selftest-${{ steps.create_issue.outputs.issue_number }}" \
-            --base "main")
+            --base main)
 
           echo "PR URL: $PR_URL"
           echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
 
-      # -----------------------------------------------------
-      # 3️⃣ Wait briefly for project automation
-      # -----------------------------------------------------
-      - name: Wait for project automation
-        run: sleep 8
-
-      # -----------------------------------------------------
-      # 4️⃣ Close PR (simulating Codex merging/closing)
-      # -----------------------------------------------------
-      - name: Close PR
+      # ----------------------------------------------------------
+      # 4. MERGE THE PR (simulate Codex success)
+      # ----------------------------------------------------------
+      - name: Merge PR
         run: |
-          gh pr close "${{ steps.create_pr.outputs.pr_url }}" --comment "Closing PR as part of Codex self-test."
+          gh pr merge "${{ steps.create_pr.outputs.pr_url }}" --squash --delete-branch
 
-      # -----------------------------------------------------
-      # 5️⃣ Close Issue
-      # -----------------------------------------------------
+      # ----------------------------------------------------------
+      # 5. CLOSE THE ISSUE (project automation will move it to Done)
+      # ----------------------------------------------------------
       - name: Close issue
         run: |
-          gh issue close ${{ steps.create_issue.outputs.issue_number }} \
-            --comment "Codex self-test workflow completed."
-
-      # -----------------------------------------------------
-      # 6️⃣ Cleanup branch
-      # -----------------------------------------------------
-      - name: Delete test branch
-        run: |
-          gh api --method DELETE \
-            repos/${{ github.repository }}/git/refs/heads/codex-selftest-${{ steps.create_issue.outputs.issue_number }} \
-            || echo "Branch already deleted"
-
-      # -----------------------------------------------------
-      # 7️⃣ Finished
-      # -----------------------------------------------------
-      - name: Done
-        run: echo "Codex self-test workflow completed successfully."
-
+          gh issue close ${{ steps.create_issue.outputs.issue_number }} --comment "Codex self-test complete."
