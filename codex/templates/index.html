@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Codex Dashboard</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0b1020;
+        --bg-alt: #12172a;
+        --card-bg: #151b30;
+        --card-border: #232a40;
+        --accent: #4f46e5;
+        --accent-soft: rgba(79, 70, 229, 0.2);
+        --text: #e5e7eb;
+        --muted: #9ca3af;
+        --danger: #ef4444;
+        --success: #22c55e;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        background: radial-gradient(circle at top, #111827 0, #020617 60%);
+        color: var(--text);
+      }
+
+      .page {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 24px 16px 40px;
+      }
+
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 24px;
+      }
+
+      .title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .logo {
+        width: 36px;
+        height: 36px;
+        border-radius: 12px;
+        background: conic-gradient(
+          from 180deg,
+          #4f46e5,
+          #ec4899,
+          #22c55e,
+          #4f46e5
+        );
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 700;
+        font-size: 18px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 22px;
+      }
+
+      .subtitle {
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .meta {
+        font-size: 12px;
+        color: var(--muted);
+        text-align: right;
+      }
+
+      .meta span {
+        display: block;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--card-border);
+        background: rgba(15, 23, 42, 0.8);
+        font-size: 11px;
+      }
+
+      .pill-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+      }
+
+      .pill-dot.success {
+        background: var(--success);
+      }
+
+      .pill-dot.danger {
+        background: var(--danger);
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: 1.4fr 1fr;
+        gap: 16px;
+      }
+
+      @media (max-width: 860px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .card {
+        background: radial-gradient(circle at top left, #1f2937 0, #020617 60%);
+        border-radius: 14px;
+        padding: 16px 16px 14px;
+        border: 1px solid var(--card-border);
+        box-shadow: 0 16px 40px rgba(15, 23, 42, 0.6);
+      }
+
+      .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+
+      .card-title {
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .card-subtitle {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .status-badge {
+        font-size: 11px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--card-border);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .status-badge.ok {
+        color: var(--success);
+        border-color: rgba(34, 197, 94, 0.4);
+        background: rgba(22, 163, 74, 0.18);
+      }
+
+      .status-badge.fail {
+        color: var(--danger);
+        border-color: rgba(248, 113, 113, 0.4);
+        background: rgba(239, 68, 68, 0.1);
+      }
+
+      .status-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .status-item {
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--card-border);
+        background: radial-gradient(circle at top, #111827 0, #020617 70%);
+      }
+
+      .status-label {
+        font-size: 11px;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+
+      .status-value {
+        font-size: 13px;
+      }
+
+      .status-value strong {
+        font-weight: 600;
+      }
+
+      .status-value.ok {
+        color: var(--success);
+      }
+
+      .status-value.warn {
+        color: #eab308;
+      }
+
+      .status-value.fail {
+        color: var(--danger);
+      }
+
+      .chart-wrapper {
+        margin-top: 10px;
+        height: 220px;
+      }
+
+      canvas {
+        width: 100% !important;
+        height: 100% !important;
+      }
+
+      .history-list {
+        margin: 8px 0 0;
+        padding: 0;
+        list-style: none;
+        max-height: 210px;
+        overflow-y: auto;
+      }
+
+      .history-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 6px 2px;
+        border-bottom: 1px solid rgba(31, 41, 55, 0.7);
+        font-size: 12px;
+      }
+
+      .history-item:last-child {
+        border-bottom: none;
+      }
+
+      .history-left {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .history-status {
+        font-weight: 500;
+      }
+
+      .history-status.success {
+        color: var(--success);
+      }
+
+      .history-status.failure {
+        color: var(--danger);
+      }
+
+      .history-meta {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .history-right {
+        text-align: right;
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .empty {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 4px;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid var(--card-border);
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .tag strong {
+        color: var(--text);
+        margin-right: 4px;
+      }
+
+      .footer {
+        margin-top: 18px;
+        font-size: 11px;
+        color: var(--muted);
+        text-align: right;
+      }
+
+      .footer a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+
+      .footer a:hover {
+        text-decoration: underline;
+      }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script defer src="dashboard.js"></script>
+  </head>
+  <body>
+    <div class="page">
+      <header>
+        <div class="title">
+          <div class="logo">C</div>
+          <div>
+            <h1>Codex Dashboard</h1>
+            <div class="subtitle">
+              Telemetry &amp; self-test status for <strong>saas-app</strong>
+            </div>
+          </div>
+        </div>
+        <div class="meta">
+          <span id="meta-build-version">Version –</span>
+          <span id="meta-build-time">Last build –</span>
+          <span class="pill" id="meta-selftest-pill">
+            <span class="pill-dot"></span>
+            <span>Self-test: unknown</span>
+          </span>
+        </div>
+      </header>
+
+      <main>
+        <!-- LEFT COLUMN: Telemetry + chart -->
+        <section class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Codex Self-Test Telemetry</div>
+              <div class="card-subtitle">
+                Recent Codex self-test runs across the saas-app repo.
+              </div>
+            </div>
+            <div id="status-badge" class="status-badge">UNKNOWN</div>
+          </div>
+
+          <div class="status-grid">
+            <div class="status-item">
+              <div class="status-label">Last Run</div>
+              <div class="status-value" id="status-last-run">–</div>
+            </div>
+            <div class="status-item">
+              <div class="status-label">Success Rate</div>
+              <div class="status-value" id="status-success-rate">–</div>
+            </div>
+            <div class="status-item">
+              <div class="status-label">Avg Duration</div>
+              <div class="status-value" id="status-avg-duration">–</div>
+            </div>
+          </div>
+
+          <div class="chart-wrapper">
+            <canvas id="selftestChart"></canvas>
+          </div>
+        </section>
+
+        <!-- RIGHT COLUMN: Recent history -->
+        <section class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Recent Self-Test Runs</div>
+              <div class="card-subtitle">
+                Latest Codex self-test executions, newest first.
+              </div>
+            </div>
+          </div>
+
+          <ul class="history-list" id="history-list"></ul>
+          <div id="history-empty" class="empty" style="display: none">
+            No self-test runs recorded yet.
+          </div>
+
+          <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap">
+            <span class="tag" id="tag-last-issue"
+              ><strong>Issue</strong><span>–</span></span
+            >
+            <span class="tag" id="tag-last-pr"
+              ><strong>PR</strong><span>–</span></span
+            >
+          </div>
+        </section>
+      </main>
+
+      <div class="footer">
+        Data source: <code>codex-data.json</code> • View raw:
+        <a href="codex-data.json">codex-data.json</a>
+        &nbsp;•&nbsp;
+        <a href="selftest.json">selftest.json</a>
+      </div>
+    </div>
+  </body>
+</html>
