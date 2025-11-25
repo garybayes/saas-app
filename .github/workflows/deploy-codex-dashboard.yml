@@ -16,10 +16,6 @@ permissions:
   id-token: write
 
 jobs:
-
-  # ----------------------------------------------------------
-  # BUILD JOB — Generates codex-build/ locally
-  # ----------------------------------------------------------
   build:
     runs-on: ubuntu-latest
 
@@ -27,13 +23,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # Needed for release notes or commit history
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
       - name: Install dependencies
         run: npm ci
@@ -41,19 +36,22 @@ jobs:
       - name: Build Codex Dashboard
         run: npm run codex:build
 
-      - name: List build output
-        run: ls -R codex-build
+      - name: Inject self-test telemetry into codex-build
+        run: |
+          mkdir -p codex-build
+          if [ -f codex-selftest/latest.json ]; then
+            echo "Including self-test telemetry..."
+            cp codex-selftest/latest.json codex-build/selftest.json
+          else
+            echo "No telemetry found — adding fallback"
+            echo '{"timestamp":null,"status":"none"}' > codex-build/selftest.json
+          fi
 
-      # Upload artifact
-      - name: Upload Pages Artifact
+      - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./codex-build
 
-
-  # ----------------------------------------------------------
-  # DEPLOY JOB — Downloads artifact + merges telemetry
-  # ----------------------------------------------------------
   deploy:
     needs: build
     runs-on: ubuntu-latest
@@ -62,31 +60,6 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      - name: Download artifact created by build job
-        uses: actions/download-pages-artifact@v3
-        with:
-          path: ./site
-
-      - name: Ensure site directory exists
-        run: |
-          mkdir -p site
-          ls -R site
-
-      - name: Merge Codex self-test telemetry (if available)
-        run: |
-          mkdir -p site
-          if [ -f codex-selftest/latest.json ]; then
-            echo "Adding selftest telemetry..."
-            cp codex-selftest/latest.json site/selftest.json
-          else
-            echo "No telemetry found — writing fallback"
-            echo '{"timestamp":null,"status":"none"}' > site/selftest.json
-          fi
-
-      # Deploy final folder
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          artifact_path: ./site
