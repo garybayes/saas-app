@@ -10,21 +10,21 @@ on:
       - ".github/workflows/deploy-codex-dashboard.yml"
 
 permissions:
-  contents: write    # Required for gh-pages
+  contents: write
   pages: write
   id-token: write
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # Required for release notes
+          fetch-depth: 0
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -32,25 +32,37 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Codex Dashboard
+      # ----------------------------------------------------------
+      # Copy telemetry BEFORE building dashboard
+      # ----------------------------------------------------------
+      - name: Merge telemetry
+        run: |
+          mkdir -p codex-build
+          if [ -f codex-build/selftest.json ]; then
+            echo "Existing telemetry found."
+          else
+            echo "⚠️ No telemetry found — creating placeholder."
+            echo '{"timestamp":null,"status":"none","duration_seconds":null}' > codex-build/selftest.json
+          fi
+
+      - name: Build dashboard
         run: npm run codex:build
 
-      - name: Display build output
+      - name: Display build contents
         run: ls -R codex-build
 
-      - name: Upload to GitHub Pages artifact store
+      - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./codex-build
 
   deploy:
-    needs: build-and-deploy
+    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deploy.outputs.page_url }}
 
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
+      - id: deploy
         uses: actions/deploy-pages@v4
