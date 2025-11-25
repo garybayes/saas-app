@@ -8,6 +8,7 @@ on:
     paths:
       - "codex/**"
       - ".github/workflows/deploy-codex-dashboard.yml"
+      - "codex-selftest/**"
 
 permissions:
   contents: write
@@ -15,6 +16,10 @@ permissions:
   id-token: write
 
 jobs:
+
+  # ----------------------------------------------------------
+  # BUILD JOB — Generates codex-build/ locally
+  # ----------------------------------------------------------
   build:
     runs-on: ubuntu-latest
 
@@ -22,47 +27,66 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0   # Needed for release notes or commit history
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      # ----------------------------------------------------------
-      # Copy telemetry BEFORE building dashboard
-      # ----------------------------------------------------------
-      - name: Merge telemetry
-        run: |
-          mkdir -p codex-build
-          if [ -f codex-build/selftest.json ]; then
-            echo "Existing telemetry found."
-          else
-            echo "⚠️ No telemetry found — creating placeholder."
-            echo '{"timestamp":null,"status":"none","duration_seconds":null}' > codex-build/selftest.json
-          fi
-
-      - name: Build dashboard
+      - name: Build Codex Dashboard
         run: npm run codex:build
 
-      - name: Display build contents
+      - name: List build output
         run: ls -R codex-build
 
-      - name: Upload artifact
+      # Upload artifact
+      - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./codex-build
 
+
+  # ----------------------------------------------------------
+  # DEPLOY JOB — Downloads artifact + merges telemetry
+  # ----------------------------------------------------------
   deploy:
     needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      - id: deploy
+      - name: Download artifact created by build job
+        uses: actions/download-pages-artifact@v3
+        with:
+          path: ./site
+
+      - name: Ensure site directory exists
+        run: |
+          mkdir -p site
+          ls -R site
+
+      - name: Merge Codex self-test telemetry (if available)
+        run: |
+          mkdir -p site
+          if [ -f codex-selftest/latest.json ]; then
+            echo "Adding selftest telemetry..."
+            cp codex-selftest/latest.json site/selftest.json
+          else
+            echo "No telemetry found — writing fallback"
+            echo '{"timestamp":null,"status":"none"}' > site/selftest.json
+          fi
+
+      # Deploy final folder
+      - name: Deploy to GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          artifact_path: ./site
