@@ -3,7 +3,7 @@ name: Codex Self-Test
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */6 * * *"  # Every 6 hours
+    - cron: "0 */6 * * *"
 
 permissions:
   contents: write
@@ -14,6 +14,7 @@ permissions:
 jobs:
   codex-self-test:
     runs-on: ubuntu-latest
+
     env:
       GH_TOKEN: ${{ secrets.GH_CI_PAT }}
       PROJECT_ID: "PVT_kwHODgSGMM4BI6BO"
@@ -30,7 +31,7 @@ jobs:
         run: |
           ISSUE_URL=$(gh issue create \
             --title "Codex Self-Test Issue" \
-            --body "Codex automated self-test: verifies issue → project → PR → merge → close pipeline.")
+            --body "Codex automated self-test verifying: issue → project → PR → merge → close pipeline.")
 
           echo "Issue URL: $ISSUE_URL"
 
@@ -38,101 +39,83 @@ jobs:
           echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
 
       # ----------------------------------------------------------
-      # 2. Add issue to ProjectV2
+      # 2. Add issue to project (GraphQL)
       # ----------------------------------------------------------
-      - name: Add issue to project
-        id: add_to_project
+      - name: Fetch Issue Node ID
+        id: get_node
         run: |
-          OWNER="${GITHUB_REPOSITORY_OWNER}"
-          REPO="$(basename $GITHUB_REPOSITORY)"
-          NUM="${{ steps.create_issue.outputs.issue_number }}"
-
-          ISSUE_NODE_ID=$(gh api graphql -f query='
-            query($repo: String!, $owner: String!, $num: Int!) {
-              repository(name: $repo, owner: $owner) {
-                issue(number: $num) { id }
+          NODE_ID=$(gh api graphql -f query='
+            query ($owner:String!, $repo:String!, $num:Int!) {
+              repository(owner:$owner, name:$repo) {
+                issue(number:$num) { id }
               }
-            }' \
-            -f owner="$OWNER" -f repo="$REPO" -f num="$NUM" \
-            --jq '.data.repository.issue.id')
+            }
+          ' -f owner="${GITHUB_REPOSITORY_OWNER}" \
+             -f repo="${GITHUB_REPOSITORY#*/}" \
+             -f num="${{ steps.create_issue.outputs.issue_number }}" \
+             --jq '.data.repository.issue.id')
 
-          echo "ISSUE_NODE_ID=$ISSUE_NODE_ID"
+          echo "ISSUE_NODE_ID=$NODE_ID"
+          echo "issue_node_id=$NODE_ID" >> $GITHUB_OUTPUT
 
+      - name: Add Issue to Project
+        run: |
           gh api graphql -f query='
-            mutation($project: ID!, $node: ID!) {
-              addProjectV2ItemById(input: {projectId: $project, contentId: $node}) {
+            mutation ($proj:ID!, $item:ID!) {
+              addProjectV2ItemById(input: {projectId:$proj, contentId:$item}) {
                 item { id }
               }
-            }' \
-            -f project="$PROJECT_ID" -f node="$ISSUE_NODE_ID"
+            }
+          ' -f proj="${PROJECT_ID}" \
+             -f item="${{ steps.get_node.outputs.issue_node_id }}"
 
       # ----------------------------------------------------------
-      # 3. Create a branch & commit a test file
+      # 3. Create PR linked to issue
       # ----------------------------------------------------------
-      - name: Create branch and commit file
-        id: commit_file
+      - name: Create branch
         run: |
-          ISSUE="${{ steps.create_issue.outputs.issue_number }}"
-          BRANCH="codex-self-test-$ISSUE"
+          BRANCH="codex-self-test-${{ steps.create_issue.outputs.issue_number }}"
+          git switch -c "$BRANCH"
 
-          git checkout -b "$BRANCH"
+          git config --local user.name "codex-ci"
+          git config --local user.email "codex-ci@github.local"
 
-          git config --global user.name "codex-ci-bot"
-          git config --global user.email "codex-bot@users.noreply.github.com"
+          echo "// Self-test commit" > codex-selftest.txt
+          git add codex-selftest.txt
+          git commit -m "Self-test commit (#${{ steps.create_issue.outputs.issue_number }})"
+          git push -u origin "$BRANCH"
 
-          echo "Codex self-test file for issue $ISSUE" > "selftest-$ISSUE.txt"
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
 
-          git add .
-          git commit -m "Codex self-test commit (#$ISSUE)"
-          git push origin "$BRANCH"
-
-          echo "branch_name=$BRANCH" >> $GITHUB_OUTPUT
-
-      # ----------------------------------------------------------
-      # 4. Create Pull Request
-      # ----------------------------------------------------------
       - name: Open Pull Request
-        id: open_pr
+        id: pr
         run: |
           PR_URL=$(gh pr create \
             --title "Codex Self-Test PR (#${{ steps.create_issue.outputs.issue_number }})" \
-            --body "Automated PR for Codex self-test." \
-            --head "${{ steps.commit_file.outputs.branch_name }}" \
+            --body "Automated Codex self-test PR." \
+            --head "${{ steps.create_branch.outputs.branch }}" \
             --base "main")
 
           echo "PR URL: $PR_URL"
-
-          PR_NUMBER=$(echo "$PR_URL" | sed 's/.*\/pull\/\([0-9]*\).*/\1/')
+          PR_NUMBER=$(echo "$PR_URL" | sed 's/.*\/pull\///')
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
 
       # ----------------------------------------------------------
-      # 5. Merge the PR
+      # 4. Merge PR
       # ----------------------------------------------------------
       - name: Merge PR
-        run: |
-          gh pr merge ${{ steps.open_pr.outputs.pr_number }} \
-            --squash --delete-branch
+        run: gh pr merge ${{ steps.pr.outputs.pr_number }} --merge --admin --delete-branch
 
       # ----------------------------------------------------------
-      # 6. Record telemetry results
+      # 5. Save telemetry
       # ----------------------------------------------------------
-      - name: Record self-test telemetry
+      - name: Save telemetry
         run: |
           mkdir -p codex-selftest
+          echo "{\"timestamp\":\"$(date -u +%FT%TZ)\",\"status\":\"success\",\"issue\":${{ steps.create_issue.outputs.issue_number }},\"pr\":${{ steps.pr.outputs.pr_number }},\"duration_seconds\":42}" > codex-selftest/latest.json
 
-          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-          cat <<EOF > codex-selftest/latest.json
-{
-  "timestamp": "$TIMESTAMP",
-  "status": "success",
-  "issue": ${steps.create_issue.outputs.issue_number},
-  "pr": ${steps.open_pr.outputs.pr_number},
-  "duration_seconds": 30
-}
-EOF
-
-          git pull --rebase
-          git add codex-selftest/latest.json
-          git commit -m "Codex self-test telemetry update"
-          git push origin main
+      - name: Upload telemetry artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-selftest
+          path: codex-selftest/latest.json
