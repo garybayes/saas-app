@@ -3,107 +3,90 @@ name: Codex Self-Test
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */6 * * *"   # Every 6 hours
+    - cron: "0 */6 * * *"
 
 permissions:
   contents: write
   issues: write
   pull-requests: write
+  actions: read
   repository-projects: write
 
 jobs:
   codex-self-test:
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+      REPO: ${{ github.event.repository.name }}
+      OWNER: ${{ github.repository_owner }}
       PROJECT_ID: "PVT_kwHODgSGMM4BI6BO"
 
     steps:
-      # -------------------------------
-      # 0. Checkout
-      # -------------------------------
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # -------------------------------
-      # 1. Create a test issue
-      # -------------------------------
+      # ----------------------------------------------------------
+      # 1. Create the test issue (NO --json flag)
+      # ----------------------------------------------------------
       - name: Create test issue
         id: create_issue
         run: |
           ISSUE_URL=$(gh issue create \
             --title "Codex Self-Test Issue" \
-            --body "Automated Codex self-test: validating pipeline")
+            --assignee "@me" \
+            --body "Automated Codex self-test: verifying issue → project → PR → merge → close pipeline.")
 
           echo "ISSUE_URL=$ISSUE_URL"
 
-          # Extract number from URL correctly
-          ISSUE_NUMBER=$(basename "$ISSUE_URL")
+          ISSUE_NUMBER=$(echo "$ISSUE_URL" | sed -E 's#.*/issues/([0-9]+)#\1#')
           echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
 
-          echo "Extracted ISSUE_NUMBER=$ISSUE_NUMBER"
-
-      # -------------------------------
-      # 2. Convert issue → GraphQL node ID
-      # -------------------------------
-      - name: Resolve issue node ID
+      # ----------------------------------------------------------
+      # 2. Lookup Issue Node ID for GraphQL
+      # ----------------------------------------------------------
+      - name: Fetch issue node ID
         id: issue_node
         run: |
-          OWNER="${GITHUB_REPOSITORY_OWNER}"
-          REPO="${GITHUB_REPOSITORY#*/}"
-          NUM="${{ steps.create_issue.outputs.issue_number }}"
-
-          NUM_CLEAN=$(echo "$NUM" | tr -d '[:space:]')
-          echo "NUM_CLEAN=$NUM_CLEAN"
-
-          ISSUE_NODE_ID=$(gh api graphql -f query='
+          NODE_ID=$(gh api graphql -f query='
             query($owner: String!, $repo: String!, $num: Int!) {
               repository(owner: $owner, name: $repo) {
                 issue(number: $num) { id }
               }
-            }
-          ' -F owner="$OWNER" -F repo="$REPO" -F num="$NUM_CLEAN" --jq '.data.repository.issue.id')
+            }' \
+            -F owner=$OWNER -F repo=$REPO -F num=${{ steps.create_issue.outputs.issue_number }} \
+            --jq '.data.repository.issue.id')
 
-          echo "ISSUE_NODE_ID=$ISSUE_NODE_ID"
-          echo "issue_node_id=$ISSUE_NODE_ID" >> $GITHUB_OUTPUT
+          echo "node_id=$NODE_ID" >> $GITHUB_OUTPUT
 
-      # -------------------------------
-      # 3. Add issue to Codex project
-      # -------------------------------
+      # ----------------------------------------------------------
+      # 3. Add issue to ProjectV2 (PAT required)
+      # ----------------------------------------------------------
       - name: Add issue to project
         id: project_add
         run: |
           gh api graphql -f query='
-            mutation($project: ID!, $content: ID!) {
+            mutation($project: ID!, $item: ID!) {
               addProjectV2ItemById(input: {
                 projectId: $project,
-                contentId: $content
+                contentId: $item
               }) {
                 item { id }
               }
-            }
-          ' -F project="$PROJECT_ID" -F content="${{ steps.issue_node.outputs.issue_node_id }}"
+            }' \
+            -F project=$PROJECT_ID \
+            -F item=${{ steps.issue_node.outputs.node_id }}
 
-      # -------------------------------
-      # 4. Create PR for the test
-      # -------------------------------
+      # ----------------------------------------------------------
+      # 4. Create PR for the issue
+      # ----------------------------------------------------------
       - name: Create self-test PR
-        id: create_pr
+        id: open_pr
         run: |
-          BRANCH="codex-selftest-$(date +%s)"
-          git checkout -b "$BRANCH"
+          BRANCH="codex-self-test-${{ steps.create_issue.outputs.issue_number }}"
+          git switch -c "$BRANCH"
 
-          echo "// selftest $(date)" > codex-selftest.js
-          git add codex-selftest.js
-          git commit -m "Codex self-test commit"
+          echo "TEST=$(date)" > codex-selftest.txt
+          git add codex-selftest.txt
+          git commit -m "Codex self-test commit (#${{ steps.create_issue.outputs.issue_number }})"
 
-          git push -u origin "$BRANCH"
-
-          PR_URL=$(gh pr create \
-            --title "Codex Self-Test PR" \
-            --body "Automated PR for Codex pipeline validation" \
-            --head "$BRANCH")
-
-          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
-
-      # -----------
+          git push origin "$BRANC
