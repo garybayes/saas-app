@@ -37,10 +37,11 @@ jobs:
 
           echo "ISSUE_URL=$ISSUE_URL"
 
-          ISSUE_NUMBER=$(echo "$ISSUE_URL" | sed 's/.*#//' | tr -d '\n' | tr -d '[:space:]')
+          # Extract number from URL correctly
+          ISSUE_NUMBER=$(basename "$ISSUE_URL")
           echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
 
-          echo "Extracted ISSUE_NUMBER: $ISSUE_NUMBER"
+          echo "Extracted ISSUE_NUMBER=$ISSUE_NUMBER"
 
       # -------------------------------
       # 2. Convert issue → GraphQL node ID
