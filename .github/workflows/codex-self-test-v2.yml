@@ -27,76 +27,57 @@ jobs:
           git config --global user.name "codex-ci-bot"
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
-      # ----------------------------------------------------------
-      # 1. Create self-test issue
-      # ----------------------------------------------------------
       - name: Create self-test issue
         id: create_issue
         run: |
           set -e
-
           ISSUE_URL=$(gh issue create \
             --title "Codex Self-Test Issue" \
-            --body "Codex automated self-test: verifies issue → project → telemetry pipeline.")
+            --body "Codex automated self-test validating issue-to-project-to-telemetry pipeline.")
 
           echo "url=$ISSUE_URL" >> "$GITHUB_OUTPUT"
 
-          ISSUE_NUM=$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')
+          ISSUE_NUM=$(echo "$ISSUE_URL" | grep -oE '[0-9]+$")
           echo "number=$ISSUE_NUM" >> "$GITHUB_OUTPUT"
 
-      # ----------------------------------------------------------
-      # 2. Add issue to Codex Dual-Track Development project
-      # ----------------------------------------------------------
       - name: Add issue to Codex Dual-Track Development project
         id: project_add
         run: |
           set -e
-
           ISSUE_NUM="${{ steps.create_issue.outputs.number }}"
 
-          # Get Issue Node ID
           NODE_JSON=$(gh api graphql -f query='
             query($owner:String!, $repo:String!, $num:Int!) {
               repository(owner:$owner, name:$repo) {
                 issue(number:$num) { id }
               }
-            }' \
-            -F owner="${GITHUB_REPOSITORY_OWNER}" \
+            }
+          ' -F owner="${GITHUB_REPOSITORY_OWNER}" \
             -F repo="${GITHUB_REPOSITORY#*/}" \
             -F num="$ISSUE_NUM")
 
-          ISSUE_NODE_ID=$(echo "$NODE_JSON" | grep -oE '"id":"[^"]*"' | head -n1 | sed 's/"id":"\(.*\)"/\1/')
+          ISSUE_NODE_ID=$(echo "$NODE_JSON" | grep -oE '"id":"[^"]+"' | sed 's/"id":"\(.*\)"/\1/')
 
-          # Add to project
           ITEM_JSON=$(gh api graphql -f query='
             mutation($project:ID!, $item:ID!) {
               addProjectV2ItemById(input:{projectId:$project, contentId:$item}) {
                 item { id }
               }
-            }' \
-            -F project="$PROJECT_ID" \
-            -F item="$ISSUE_NODE_ID")
+            }
+          ' -F project="$PROJECT_ID" -F item="$ISSUE_NODE_ID")
 
-          ITEM_ID=$(echo "$ITEM_JSON" | grep -oE '"id":"[^"]*"' | head -n1 | sed 's/"id":"\(.*\)"/\1/')
+          ITEM_ID=$(echo "$ITEM_JSON" | grep -oE '"id":"[^"]+"' | sed 's/"id":"\(.*\)"/\1/')
           echo "item_id=$ITEM_ID" >> "$GITHUB_OUTPUT"
 
-      # ----------------------------------------------------------
-      # 3. Close self-test issue (marks a full cycle success)
-      # ----------------------------------------------------------
       - name: Close self-test issue
         run: |
           gh issue close "${{ steps.create_issue.outputs.number }}" \
             --comment "Codex self-test completed successfully."
 
-      # ----------------------------------------------------------
-      # 4. Write telemetry snapshot and commit to main
-      # ----------------------------------------------------------
       - name: Write and commit telemetry snapshot
         run: |
           set -e
-
           mkdir -p codex-selftest
-
           TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           ISSUE_NUM="${{ steps.create_issue.outputs.number }}"
 
@@ -104,16 +85,10 @@ jobs:
 {
   "timestamp": "$TS",
   "status": "success",
-  "duration_seconds": null,
-  "issue": $ISSUE_NUM,
-  "pr": null
+  "issue": $ISSUE_NUM
 }
 EOF
 
           git add codex-selftest/latest.json
-
           git commit -m "Codex self-test telemetry snapshot [skip ci]" || echo "No changes to commit"
-
-          # Push back to main (or the current default branch)
-          CURRENT_BRANCH="${GITHUB_REF_NAME:-main}"
-          git push origin "$CURRENT_BRANCH" || echo "Push skipped (no new commit)"
+          git push origin main || true
