@@ -2,223 +2,249 @@ name: Codex Dual-Track Supervisor
 
 on:
   workflow_dispatch:
-    inputs:
-      issue_number:
-        description: 'GitHub issue number to start work on'
-        required: true
-        type: string
-      track:
-        description: 'Track: a = Core / Backend, b = Dashboard / Telemetry'
-        required: true
-        type: choice
-        options:
-          - a
-          - b
+  schedule:
+    - cron: "*/30 * * * *"  # Every 30 minutes
 
 permissions:
   contents: write
-  issues: write
   pull-requests: write
+  issues: write
   repository-projects: write
 
+env:
+  GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+  PROJECT_ID: "PVT_kwHODgSGMM4BI6BO"
+
 jobs:
-  dual-track:
+  codex-supervisor:
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-      OWNER: garybayes
-      REPO: saas-app
-      PROJECT_ID: PVT_kwHODgSGMM4BI6BO
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ----------------------------------------------------------
-      # 1. Resolve issue, title, slug, and track
-      # ----------------------------------------------------------
-      - name: Resolve issue & track
-        id: resolve
+      - name: Configure Git identity
         run: |
-          set -e
+          git config --global user.name "codex-supervisor"
+          git config --global user.email "codex@automation.local"
 
-          ISSUE_NUMBER_INPUT="${{ inputs.issue_number }}"
-          TRACK_INPUT="${{ inputs.track }}"
-
-          # Strip anything non-numeric from issue number
-          ISSUE_NUMBER=$(echo "$ISSUE_NUMBER_INPUT" | tr -dc '0-9')
-
-          if [ -z "$ISSUE_NUMBER" ]; then
-            echo "Issue number could not be resolved from: $ISSUE_NUMBER_INPUT"
-            exit 1
-          fi
-
-          if [ -z "$TRACK_INPUT" ]; then
-            echo "Track input is required (a or b)."
-            exit 1
-          fi
-
-          TRACK="$TRACK_INPUT"
-
-          echo "Using ISSUE_NUMBER=$ISSUE_NUMBER"
-          echo "Using TRACK=$TRACK"
-
-          # Fetch title via GitHub API
-          TITLE=$(gh api "/repos/$OWNER/$REPO/issues/$ISSUE_NUMBER" --jq '.title')
-          if [ -z "$TITLE" ] || [ "$TITLE" = "null" ]; then
-            echo "Failed to fetch issue title for #$ISSUE_NUMBER"
-            exit 1
-          fi
-
-          # Build a safe slug from the title
-          SLUG=$(printf "%s" "$TITLE" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')
-
-          echo "Issue title: $TITLE"
-          echo "Slug: $SLUG"
-
-          echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "track=$TRACK" >> "$GITHUB_OUTPUT"
-          echo "title=$TITLE" >> "$GITHUB_OUTPUT"
-          echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
-
-      # ----------------------------------------------------------
-      # 2. Setup git identity
-      # ----------------------------------------------------------
-      - name: Setup git identity
+      ##############################################
+      # 1. Fetch Project items and gate if any
+      #    item is already "In Progress"
+      ##############################################
+      - name: Fetch Project items
+        id: fetch
         run: |
-          git config user.name "codex-ci-bot"
-          git config user.email "codex-bot@users.noreply.github.com"
+          echo "Querying ProjectV2…"
 
-      # ----------------------------------------------------------
-      # 3. Create branch and track marker file
-      # ----------------------------------------------------------
-      - name: Create track branch and marker file
-        id: branch
-        run: |
-          set -e
+          gh api graphql -f query='
+            query($project: ID!) {
+              node(id: $project) {
+                ... on ProjectV2 {
+                  items(first: 50) {
+                    nodes {
+                      id
+                      content {
+                        ... on Issue {
+                          number
+                          title
+                          milestone { title }
+                        }
+                      }
+                      fieldValues(first: 20) {
+                        nodes {
+                          ... on ProjectV2ItemFieldSingleSelectValue {
+                            name
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ' -F project="$PROJECT_ID" > project.json
 
-          ISSUE_NUMBER="${{ steps.resolve.outputs.issue_number }}"
-          TRACK="${{ steps.resolve.outputs.track }}"
-          TITLE="${{ steps.resolve.outputs.title }}"
-          SLUG="${{ steps.resolve.outputs.slug }}"
+          # Check if any item is already "In Progress"
+          INPROG=$(jq -r '
+            .data.node.items.nodes[]
+            | select(
+                .fieldValues.nodes
+                | map(select(.name == "In Progress"))
+                | length > 0
+              )
+            | .content.number
+          ' project.json | head -n 1)
 
-          # Uppercase track for display
-          TRACK_UPPER=$(echo "$TRACK" | tr '[:lower:]' '[:upper:]')
-
-          BRANCH="codex-track-${TRACK}-${ISSUE_NUMBER}-${SLUG}"
-
-          echo "Creating branch: $BRANCH"
-
-          git fetch origin main
-          git checkout -b "$BRANCH" origin/main
-
-          # Create track directory & marker file
-          mkdir -p "codex/track-${TRACK}"
-          FILE="codex/track-${TRACK}/issue-${ISSUE_NUMBER}.md"
-
-          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-          cat > "$FILE" <<EOF
-# Codex Track ${TRACK_UPPER} - Issue #${ISSUE_NUMBER}
-
-- Title: ${TITLE}
-- Track: ${TRACK_UPPER}
-- Created by: Codex Dual-Track Supervisor workflow
-- Last updated: ${NOW}
-
-This file is a placeholder for Codex work on this issue.
-It ensures non-empty commits and provides an anchor for future edits.
-EOF
-
-          git add "$FILE"
-          git commit -m "Codex Track ${TRACK_UPPER}: start work on #${ISSUE_NUMBER}"
-          git push origin "$BRANCH"
-
-          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
-
-      # ----------------------------------------------------------
-      # 4. Open PR linked to the issue
-      # ----------------------------------------------------------
-      - name: Open Pull Request
-        id: pr
-        run: |
-          ISSUE_NUMBER="${{ steps.resolve.outputs.issue_number }}"
-          TRACK="${{ steps.resolve.outputs.track }}"
-          TITLE="${{ steps.resolve.outputs.title }}"
-          BRANCH="${{ steps.branch.outputs.branch }}"
-
-          TRACK_UPPER=$(echo "$TRACK" | tr '[:lower:]' '[:upper:]')
-
-          PR_TITLE="Codex Track ${TRACK_UPPER}: #${ISSUE_NUMBER} ${TITLE}"
-          PR_BODY="Automated Codex Dual-Track PR for issue #${ISSUE_NUMBER}.
-
-Track: ${TRACK_UPPER}
-Linked issue: #${ISSUE_NUMBER}
-
-This PR was created by the Codex Dual-Track Supervisor workflow.
-"
-
-          echo "Creating PR from $BRANCH → main"
-
-          PR_URL=$(gh pr create \
-            --base main \
-            --head "$BRANCH" \
-            --title "$PR_TITLE" \
-            --body "$PR_BODY" \
-            --label "codex" \
-            --label "track-${TRACK}")
-
-          echo "PR_URL=$PR_URL"
-          echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
-
-      # ----------------------------------------------------------
-      # 5. Add PR to Codex Dual-Track Development project
-      # ----------------------------------------------------------
-      - name: Add PR to Codex project
-        run: |
-          set -e
-
-          PR_URL="${{ steps.pr.outputs.url }}"
-          if [ -z "$PR_URL" ]; then
-            echo "No PR URL found; skipping project insertion."
+          if [ -n "$INPROG" ] && [ "$INPROG" != "null" ]; then
+            echo "Found In Progress issue #$INPROG – supervisor will not start another."
+            echo "issue=none" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # Extract PR number
-          PR_NUMBER=$(echo "$PR_URL" | sed 's#.*/pull/##')
+          # Helper: pick first Todo with given milestone title
+          pick_issue_for_milestone() {
+            local MILESTONE="$1"
+            jq -r --arg M "$MILESTONE" '
+              .data.node.items.nodes[]
+              | select(
+                  .fieldValues.nodes
+                  | map(select(.name == "Todo"))
+                  | length > 0
+                )
+              | select(.content.milestone != null and .content.milestone.title == $M)
+              | .content.number
+            ' project.json | head -n 1
+          }
 
-          echo "PR number: $PR_NUMBER"
+          ISSUE_NUMBER=""
 
-          # Get PR node ID
-          PR_NODE_ID=$(gh api graphql -f query='
-            query($owner:String!, $repo:String!, $num:Int!) {
-              repository(owner:$owner, name:$repo) {
-                pullRequest(number:$num) { id }
-              }
-            }' \
-            -F owner="$OWNER" \
-            -F repo="$REPO" \
-            -F num="$PR_NUMBER" \
-            --jq '.data.repository.pullRequest.id')
+          # Priority 1: Sprint 5 Completion
+          ISSUE_NUMBER=$(pick_issue_for_milestone "Sprint 5 Completion")
 
-          if [ -z "$PR_NODE_ID" ] || [ "$PR_NODE_ID" = "null" ]; then
-            echo "Failed to resolve PR node ID."
-            exit 1
+          # Priority 2: Codex Dashboard V2
+          if [ -z "$ISSUE_NUMBER" ] || [ "$ISSUE_NUMBER" = "null" ]; then
+            ISSUE_NUMBER=$(pick_issue_for_milestone "Codex Dashboard V2")
           fi
 
-          echo "PR node ID: $PR_NODE_ID"
+          # Priority 3: Dashboard V3
+          if [ -z "$ISSUE_NUMBER" ] || [ "$ISSUE_NUMBER" = "null" ]; then
+            ISSUE_NUMBER=$(pick_issue_for_milestone "Dashboard V3")
+          fi
 
-          # Add to ProjectV2
-          gh api graphql -f query='
-            mutation($project:ID!, $item:ID!) {
-              addProjectV2ItemById(input:{projectId:$project, contentId:$item}) {
-                item { id }
-              }
-            }
-          ' \
-          -F project="$PROJECT_ID" \
-          -F item="$PR_NODE_ID"
+          # Fallback: ANY Todo
+          if [ -z "$ISSUE_NUMBER" ] || [ "$ISSUE_NUMBER" = "null" ]; then
+            ISSUE_NUMBER=$(jq -r '
+              .data.node.items.nodes[]
+              | select(
+                  .fieldValues.nodes
+                  | map(select(.name == "Todo"))
+                  | length > 0
+                )
+              | .content.number
+            ' project.json | head -n 1)
+          fi
 
-          echo "PR added to Codex Dual-Track Development project."
+          if [ -z "$ISSUE_NUMBER" ] || [ "$ISSUE_NUMBER" = "null" ]; then
+            echo "No Todo issues found. Exiting."
+            echo "issue=none" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Selected issue #$ISSUE_NUMBER"
+          echo "issue=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+
+      ##############################################
+      # 2. Check if the issue already has an open PR
+      ##############################################
+      - name: Check for existing PR
+        id: prcheck
+        if: steps.fetch.outputs.issue != 'none'
+        run: |
+          ISSUE=${{ steps.fetch.outputs.issue }}
+
+          PR_URL=$(gh pr list \
+            --state open \
+            --search "linked:$ISSUE" \
+            --json url \
+            --jq '.[0].url')
+
+          if [ -n "$PR_URL" ] && [ "$PR_URL" != "null" ]; then
+            echo "Issue already has an open PR: $PR_URL"
+            echo "pr_exists=yes" >> $GITHUB_OUTPUT
+          else
+            echo "No open PR for this issue."
+            echo "pr_exists=no" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Stop if PR already exists
+        if: steps.prcheck.outputs.pr_exists == 'yes'
+        run: |
+          echo "Supervisor will not create a duplicate PR."
+          exit 0
+
+      ##############################################
+      # 3. Create working branch
+      ##############################################
+      - name: Create working branch
+        id: create_branch
+        if: steps.prcheck.outputs.pr_exists == 'no'
+        run: |
+          ISSUE=${{ steps.fetch.outputs.issue }}
+          BRANCH="codex-issue-${ISSUE}"
+          git checkout -b "$BRANCH"
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+
+      ##############################################
+      # 4. Create a starter commit (worker stub)
+      ##############################################
+      - name: Create starter commit
+        if: steps.prcheck.outputs.pr_exists == 'no'
+        run: |
+          ISSUE=${{ steps.fetch.outputs.issue }}
+
+          mkdir -p codex
+          cat <<EOF > "codex/issue-${ISSUE}.txt"
+// Codex automation stub for issue #${ISSUE}
+//
+// This file marks that Codex has begun work on this issue.
+// Human or Codex can replace this with real implementation work.
+EOF
+
+          git add "codex/issue-${ISSUE}.txt"
+          git commit -m "Codex: start work on issue #${ISSUE}"
+
+      ##############################################
+      # 5. Push branch & create PR
+      ##############################################
+      - name: Push branch
+        if: steps.prcheck.outputs.pr_exists == 'no'
+        run: |
+          BRANCH=${{ steps.create_branch.outputs.branch }}
+          git push origin "$BRANCH"
+
+      - name: Open PR
+        id: pr_create
+        if: steps.prcheck.outputs.pr_exists == 'no'
+        run: |
+          ISSUE=${{ steps.fetch.outputs.issue }}
+          BRANCH=${{ steps.create_branch.outputs.branch }}
+
+          PR_URL=$(gh pr create \
+            --title "Codex: Implement #${ISSUE}" \
+            --body "Codex supervisor has started automated work on issue #${ISSUE}.
+
+- [ ] Replace stub in \`codex/issue-${ISSUE}.txt\` with real implementation
+- [ ] Ensure CI passes (lint, tests, Playwright)
+- [ ] Update documentation if required
+
+Linked issue: #${ISSUE}" \
+            --base main \
+            --head "$BRANCH")
+
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+
+      ##############################################
+      # 6. Write lightweight telemetry (no commit)
+      ##############################################
+      - name: Emit supervisor telemetry artifact
+        if: always()
+        run: |
+          mkdir -p codex-telemetry
+          cat <<EOF > codex-telemetry/supervisor-latest.json
+          {
+            "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "issue": "${{ steps.fetch.outputs.issue }}",
+            "pr_url": "${{ steps.pr_create.outputs.pr_url }}",
+            "status": "${{ job.status }}"
+          }
+          EOF
+
+      - name: Upload supervisor telemetry artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-supervisor-latest
+          path: codex-telemetry/supervisor-latest.json
