@@ -8,7 +8,6 @@ on:
     paths:
       - "codex/**"
       - ".github/workflows/deploy-codex-dashboard.yml"
-      - "codex-selftest/**"
 
 permissions:
   contents: write
@@ -16,7 +15,7 @@ permissions:
   id-token: write
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -25,7 +24,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -33,27 +32,35 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Download latest Codex supervisor telemetry if present
+      - name: Download supervisor telemetry
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-supervisor-latest
+          path: codex-build
+        continue-on-error: true
+
+      # Download self-test telemetry if you kept a similar artifact
+      - name: Download self-test telemetry
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-selftest-latest
+          path: codex-build
+        continue-on-error: true
+
       - name: Build Codex Dashboard
         run: npm run codex:build
 
-      - name: Inject self-test telemetry into codex-build
-        run: |
-          mkdir -p codex-build
-          if [ -f codex-selftest/latest.json ]; then
-            echo "Including self-test telemetry..."
-            cp codex-selftest/latest.json codex-build/selftest.json
-          else
-            echo "No telemetry found — adding fallback"
-            echo '{"timestamp":null,"status":"none"}' > codex-build/selftest.json
-          fi
+      - name: Display build output
+        run: ls -R codex-build
 
-      - name: Upload GitHub Pages artifact
+      - name: Upload to GitHub Pages artifact store
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./codex-build
 
   deploy:
-    needs: build
+    needs: build-and-deploy
     runs-on: ubuntu-latest
     environment:
       name: github-pages
