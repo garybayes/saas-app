@@ -32,19 +32,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Download self-test telemetry if you kept a similar artifact
+      - name: Add self-test telemetry to dashboard
+        shell: bash
+        run: |
+          mkdir -p codex-build
+
+          if [ -f codex-selftest/latest.json ]; then
+            echo "Found self-test telemetry."
+            cp -f codex-selftest/latest.json codex-build/selftest.json 2>/dev/null || true
+          else
+            echo "⚠ No self-test telemetry; generating fallback."
+            echo '{"timestamp":null,"status":"none","duration_seconds":null}' > codex-build/selftest.json
+          fi
+
       # Download latest Codex supervisor telemetry if present
       - name: Download supervisor telemetry
         uses: actions/download-artifact@v4
         with:
           name: codex-supervisor-latest
-          path: codex-build
-        continue-on-error: true
-
-      # Download self-test telemetry if you kept a similar artifact
-      - name: Download self-test telemetry
-        uses: actions/download-artifact@v4
-        with:
-          name: codex-selftest-latest
           path: codex-build
         continue-on-error: true
 
