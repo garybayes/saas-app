@@ -1,4 +1,4 @@
-name: Codex Self-Test V3 (Rebuild)
+name: Codex Self-Test v3 (Full Refresh)
 
 on:
   workflow_dispatch:
