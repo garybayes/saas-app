@@ -1,4 +1,5 @@
-name: Codex Self-Test v3 (Full Refresh)
+---
+name: Codex Self-Test v3
 
 on:
   workflow_dispatch:
@@ -12,7 +13,7 @@ permissions:
   repository-projects: write
 
 jobs:
-  codex_self_test:
+  codex-self-test:
     runs-on: ubuntu-latest
 
     env:
@@ -28,64 +29,78 @@ jobs:
           git config --global user.name "codex-ci-bot"
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
+      # ----------------------------------------------------------
+      # 1. Create a self-test issue
+      # ----------------------------------------------------------
       - name: Create self-test issue
         id: create_issue
         run: |
           set -e
-          URL=$(gh issue create --title "Codex Self-Test Issue" --body "Self-test pipeline run.")
-          NUM=$(echo "$URL" | grep -oE '[0-9]+$')
+          ISSUE_URL=$(gh issue create \
+            --title "Codex Self-Test Cycle" \
+            --body "Codex automated self-test verifying issue → project → telemetry pipeline.")
 
-          echo "url=$URL" >> $GITHUB_OUTPUT
-          echo "number=$NUM" >> $GITHUB_OUTPUT
+          ISSUE_NUM=$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')
+          echo "number=$ISSUE_NUM" >> "$GITHUB_OUTPUT"
 
-      - name: Add issue to Codex project
+      # ----------------------------------------------------------
+      # 2. Add the issue to the main Codex development project
+      # ----------------------------------------------------------
+      - name: Add issue to project
         id: add_to_project
         run: |
           set -e
+          ISSUE_NUM="${{ steps.create_issue.outputs.number }}"
 
-          NUM="${{ steps.create_issue.outputs.number }}"
-
-          NODE=$(gh api graphql -f query='
-            query($o:String!, $r:String!, $n:Int!) {
-              repository(owner:$o, name:$r) {
-                issue(number:$n) { id }
+          NODE_JSON=$(gh api graphql -f query='
+            query($owner:String!, $repo:String!, $num:Int!) {
+              repository(owner:$owner, name:$repo) {
+                issue(number:$num) { id }
               }
             }' \
-            -F o="${GITHUB_REPOSITORY_OWNER}" \
-            -F r="${GITHUB_REPOSITORY#*/}" \
-            -F n="$NUM")
+            -F owner="${GITHUB_REPOSITORY_OWNER}" \
+            -F repo="${GITHUB_REPOSITORY#*/}" \
+            -F num="$ISSUE_NUM")
 
-          ISSUE_NODE=$(echo "$NODE" | grep -oE '"id":"[^"]+"' | sed 's/"id":"\(.*\)"/\1/')
+          ISSUE_NODE_ID=$(echo "$NODE_JSON" | grep -oE '"id":"[^"]*"' | sed 's/"id":"\(.*\)"/\1/')
 
-          gh api graphql -f query='
-            mutation($p:ID!, $i:ID!) {
-              addProjectV2ItemById(input:{projectId:$p, contentId:$i}) {
+          ITEM_JSON=$(gh api graphql -f query='
+            mutation($project:ID!, $item:ID!) {
+              addProjectV2ItemById(input:{projectId:$project, contentId:$item}) {
                 item { id }
               }
             }' \
-            -F p="$PROJECT_ID" \
-            -F i="$ISSUE_NODE"
+            -F project="$PROJECT_ID" \
+            -F item="$ISSUE_NODE_ID")
 
-      - name: Close self-test issue
+          echo "Added issue to project."
+
+      # ----------------------------------------------------------
+      # 3. Close the test issue (full cycle success)
+      # ----------------------------------------------------------
+      - name: Close issue
         run: |
           gh issue close "${{ steps.create_issue.outputs.number }}" \
             --comment "Codex self-test completed successfully."
 
-      - name: Store telemetry snapshot
+      # ----------------------------------------------------------
+      # 4. Write telemetry snapshot and commit to main
+      # ----------------------------------------------------------
+      - name: Write telemetry snapshot
         run: |
           mkdir -p codex-selftest
 
           TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          NUM="${{ steps.create_issue.outputs.number }}"
+          ISSUE_NUM="${{ steps.create_issue.outputs.number }}"
 
           cat > codex-selftest/latest.json <<EOF
 {
   "timestamp": "$TS",
   "status": "success",
-  "issue": $NUM
+  "issue": $ISSUE_NUM
 }
 EOF
 
           git add codex-selftest/latest.json
-          git commit -m "Self-test telemetry update [skip ci]" || true
-          git push origin "$GITHUB_REF_NAME" || true
+          git commit -m "Codex self-test telemetry [skip ci]" || echo "No changes."
+          git push origin main || echo "Push skipped."
