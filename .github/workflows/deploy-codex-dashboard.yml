@@ -57,9 +57,8 @@ jobs:
           git checkout -b gh-pages
           git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO}.git"
 
-          # Artifact structure: artifact/<artifactName>/*
-          # Copy nested folder contents
-          cp -R artifact/*/* . || (echo "Artifact not found" && ls -R . && exit 1)
+          # Copy artifact contents (flat artifact)
+          cp -R artifact/* . || (echo "Artifact not found" && ls -R . && exit 1)
 
           git add .
           git commit -m "Deploy Codex Dashboard"
