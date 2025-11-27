@@ -1,162 +1,73 @@
 ---
-name: Codex Dual-Track Supervisor V2
+# yamllint disable rule:truthy rule:line-length
+name: Codex Dual-Track Supervisor v2
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # Every 30 minutes
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
   issues: write
   pull-requests: write
+  repository-projects: write
 
 jobs:
-  supervisor:
+  supervise:
     runs-on: ubuntu-latest
-
     env:
       GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-      REPO: ${{ github.repository }}
-
-      # Milestone buckets (case sensitive)
-      MILESTONES: |
-        Sprint 5 Completion
-        Codex Dashboard V2
-        Dashboard V3
+      PROJECT_ID: "PVT_kwHODgSGMM4BI6BO"
 
     steps:
-      - name: Checkout repository
+      - name: Checkout main
         uses: actions/checkout@v4
 
-      - name: Configure identity
+      - name: Configure bot identity
         run: |
           git config --global user.name "codex-ci-bot"
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
-      - name: Fetch all open issues
+      - name: Fetch project items
         id: fetch
         run: |
-          echo "Fetching issues for $REPO"
-          gh issue list \
-            --state open \
-            --json number,title,milestone,assignees \
-            > issues.json
+          QUERY='query($id:ID!){node(id:$id){... on ProjectV2{items(first:100){nodes{id content{__typename ... on Issue{number title state} ... on PullRequest{number title state merged}}}}}}}'
+          gh api graphql -f query="$QUERY" -F id="$PROJECT_ID" > project.json
+          COUNT=$(jq '.data.node.items.nodes | length' project.json)
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
 
-          echo "Loaded:"
-          cat issues.json
-
-          echo "issues=$(cat issues.json | jq -r tostring)" >> "$GITHUB_OUTPUT"
-
-      - name: Process milestones
-        id: pick
+      - name: Compute supervisor metrics
+        id: compute
         run: |
-          set -e
+          OPEN_ISSUES=$(jq '[.data.node.items.nodes[].content | select(.state=="OPEN")] | length' project.json)
+          MERGED_PRS=$(jq '[.data.node.items.nodes[].content | select(.merged==true)] | length' project.json)
+          echo "open_issues=$OPEN_ISSUES" >> "$GITHUB_OUTPUT"
+          echo "merged_prs=$MERGED_PRS" >> "$GITHUB_OUTPUT"
 
-          ISSUES_JSON='${{ steps.fetch.outputs.issues }}'
-
-          echo "raw_issues<<EOF" >> $GITHUB_OUTPUT
-          echo "$ISSUES_JSON" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-          # iterate through milestone list
-          while read -r MS; do
-            [ -z "$MS" ] && continue
-
-            echo "Evaluating milestone: '$MS'"
-
-            # Validate milestone existence
-            COUNT=$(echo "$ISSUES_JSON" | jq -r --arg ms "$MS" '
-              map(select(.milestone != null and .milestone.title == $ms)) | length
-            ')
-
-            if [ "$COUNT" -eq 0 ]; then
-              echo "Milestone '$MS' does not appear in any open issues — skipping."
-              continue
-            fi
-
-            echo "Milestone '$MS' has $COUNT open issues."
-
-            # Select any unassigned issue from this milestone
-            SELECTED=$(echo "$ISSUES_JSON" | jq -r --arg ms "$MS" '
-              map(select(.milestone != null
-                         and .milestone.title == $ms
-                         and (.assignees | length == 0)))
-              | first
-            ')
-
-            if [ "$SELECTED" = "null" ]; then
-              echo "No unassigned issues left in '$MS'."
-              continue
-            fi
-
-            ISSUE_NUM=$(echo "$SELECTED" | jq -r '.number')
-            ISSUE_TITLE=$(echo "$SELECTED" | jq -r '.title')
-
-            echo "Selected issue #$ISSUE_NUM ($ISSUE_TITLE)"
-
-            echo "issue=$ISSUE_NUM" >> "$GITHUB_OUTPUT"
-            echo "milestone=$MS" >> "$GITHUB_OUTPUT"
-            exit 0  # stop at first available task
-          done <<< "${MILESTONES}"
-
-          echo "No unassigned issues in any milestone."
-          echo "issue=" >> "$GITHUB_OUTPUT"
-
-      - name: Exit if no work available
-        if: ${{ steps.pick.outputs.issue == '' }}
+      - name: Update gh-pages telemetry
         run: |
-          echo "Supervisor found no available tasks. Exiting."
+          git fetch origin gh-pages
+          git checkout gh-pages
 
-      - name: Create working branch
-        if: ${{ steps.pick.outputs.issue != '' }}
-        id: branch
+          mkdir -p supervisor-telemetry
+
+          TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          echo "{
+            \"timestamp\": \"${TS}\",
+            \"project_items\": ${{ steps.fetch.outputs.count }},
+            \"open_issues\": ${{ steps.compute.outputs.open_issues }},
+            \"merged_prs\": ${{ steps.compute.outputs.merged_prs }}
+          }" > supervisor-telemetry/latest.json
+
+          git add supervisor-telemetry/latest.json
+          git commit -m "Supervisor telemetry [skip ci]" || true
+          git push origin gh-pages || true
+
+      - name: Summary
         run: |
-          ISSUE="${{ steps.pick.outputs.issue }}"
-          BR="codex-work-$ISSUE"
-
-          echo "Creating branch $BR"
-          git checkout -b "$BR"
-
-          echo "branch=$BR" >> "$GITHUB_OUTPUT"
-
-      - name: Perform Codex stub update (placeholder)
-        if: ${{ steps.pick.outputs.issue != '' }}
-        run: |
-          ISSUE="${{ steps.pick.outputs.issue }}"
-          mkdir -p codex-work
-          echo "Automated Codex work on issue #$ISSUE" > codex-work/issue-"$ISSUE".txt
-
-          git add codex-work
-          git commit -m "Codex automated work for #$ISSUE" || echo "No changes to commit"
-
-      - name: Push branch
-        if: ${{ steps.pick.outputs.issue != '' }}
-        run: |
-          BRANCH="${{ steps.branch.outputs.branch }}"
-          git push origin "$BRANCH"
-
-      - name: Create PR
-        if: ${{ steps.pick.outputs.issue != '' }}
-        id: pr
-        run: |
-          ISSUE="${{ steps.pick.outputs.issue }}"
-          BRANCH="${{ steps.branch.outputs.branch }}"
-
-          PR_URL=$(gh pr create \
-            --title "Codex Automated Work – Issue #$ISSUE" \
-            --body "This PR was generated automatically by Codex Supervisor V2" \
-            --base main \
-            --head "$BRANCH")
-
-          echo "PR opened: $PR_URL"
-          echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
-
-      - name: Comment on original issue
-        if: ${{ steps.pick.outputs.issue != '' }}
-        run: |
-          ISSUE="${{ steps.pick.outputs.issue }}"
-          PR="${{ steps.pr.outputs.url }}"
-
-          gh issue comment "$ISSUE" \
-            --body "Codex Supervisor V2 opened PR: $PR"
+          echo "Supervisor v2 run complete."
+          echo "Items: ${{ steps.fetch.outputs.count }}"
+          echo "Open issues: ${{ steps.compute.outputs.open_issues }}"
+          echo "Merged PRs: ${{ steps.compute.outputs.merged_prs }}"
