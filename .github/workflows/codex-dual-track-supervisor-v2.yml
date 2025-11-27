@@ -1,73 +1,67 @@
 ---
-# yamllint disable rule:truthy rule:line-length
+# yamllint disable rule:truthy
+
 name: Codex Dual-Track Supervisor v2
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/15 * * * *"   # Run every 15 minutes
   workflow_dispatch:
 
 permissions:
   contents: write
-  issues: write
-  pull-requests: write
-  repository-projects: write
 
 jobs:
-  supervise:
+  supervisor:
     runs-on: ubuntu-latest
+
     env:
       GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-      PROJECT_ID: "PVT_kwHODgSGMM4BI6BO"
 
     steps:
-      - name: Checkout main
+      - name: Checkout gh-pages branch
         uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          fetch-depth: 1
 
-      - name: Configure bot identity
+      - name: Configure git identity
         run: |
           git config --global user.name "codex-ci-bot"
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
-      - name: Fetch project items
-        id: fetch
+      # --------------------------------------------------------------------
+      # 1. Gather Supervisor Telemetry
+      # --------------------------------------------------------------------
+      - name: Generate supervisor telemetry snapshot
         run: |
-          QUERY='query($id:ID!){node(id:$id){... on ProjectV2{items(first:100){nodes{id content{__typename ... on Issue{number title state} ... on PullRequest{number title state merged}}}}}}}'
-          gh api graphql -f query="$QUERY" -F id="$PROJECT_ID" > project.json
-          COUNT=$(jq '.data.node.items.nodes | length' project.json)
-          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
-
-      - name: Compute supervisor metrics
-        id: compute
-        run: |
-          OPEN_ISSUES=$(jq '[.data.node.items.nodes[].content | select(.state=="OPEN")] | length' project.json)
-          MERGED_PRS=$(jq '[.data.node.items.nodes[].content | select(.merged==true)] | length' project.json)
-          echo "open_issues=$OPEN_ISSUES" >> "$GITHUB_OUTPUT"
-          echo "merged_prs=$MERGED_PRS" >> "$GITHUB_OUTPUT"
-
-      - name: Update gh-pages telemetry
-        run: |
-          git fetch origin gh-pages
-          git checkout gh-pages
-
+          set -e
           mkdir -p supervisor-telemetry
 
           TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          echo "{
-            \"timestamp\": \"${TS}\",
-            \"project_items\": ${{ steps.fetch.outputs.count }},
-            \"open_issues\": ${{ steps.compute.outputs.open_issues }},
-            \"merged_prs\": ${{ steps.compute.outputs.merged_prs }}
-          }" > supervisor-telemetry/latest.json
+          printf '{\n' > supervisor-telemetry/latest.json
+          printf '  "timestamp": "%s",\n' "$TS" >> supervisor-telemetry/latest.json
+          printf '  "status": "ok",\n' >> supervisor-telemetry/latest.json
+          printf '  "source": "supervisor-v2"\n' >> supervisor-telemetry/latest.json
+          printf '}\n' >> supervisor-telemetry/latest.json
 
-          git add supervisor-telemetry/latest.json
-          git commit -m "Supervisor telemetry [skip ci]" || true
-          git push origin gh-pages || true
-
-      - name: Summary
+      # --------------------------------------------------------------------
+      # 2. Commit telemetry directly to gh-pages
+      # --------------------------------------------------------------------
+      - name: Commit supervisor telemetry to gh-pages
         run: |
-          echo "Supervisor v2 run complete."
-          echo "Items: ${{ steps.fetch.outputs.count }}"
-          echo "Open issues: ${{ steps.compute.outputs.open_issues }}"
-          echo "Merged PRs: ${{ steps.compute.outputs.merged_prs }}"
+          set -e
+          git add supervisor-telemetry/latest.json
+          git commit -m "Supervisor telemetry update [skip ci]" || echo "No changes."
+          git push origin gh-pages || echo "Push skipped."
+
+      # --------------------------------------------------------------------
+      # 3. Trigger Telemetry Merge Workflow
+      #
+      # This workflow runs AFTER supervisor telemetry has been written.
+      # --------------------------------------------------------------------
+      - name: Trigger Telemetry Merge workflow
+        run: |
+          gh workflow run codex-telemetry-merge.yml -f reason="supervisor-update"
+          echo "Triggered telemetry merge workflow."

@@ -1,0 +1,96 @@
+---
+# yamllint disable rule:truthy
+name: Merge Codex Telemetry
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  merge-telemetry:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+
+      - name: Prepare environment
+        run: |
+          mkdir -p supervisor-telemetry
+          mkdir -p codex-selftest
+
+      - name: Load existing codex-data.json (if exists)
+        id: load_existing
+        run: |
+          if [ -f "codex-data.json" ]; then
+            EXISTING=$(cat codex-data.json)
+          else
+            EXISTING="[]"
+          fi
+
+          echo "existing=$EXISTING" >> "$GITHUB_OUTPUT"
+
+      - name: Load supervisor telemetry (optional)
+        id: load_supervisor
+        run: |
+          if [ -f "supervisor-telemetry/latest.json" ]; then
+            SUP=$(cat supervisor-telemetry/latest.json)
+          else
+            SUP=""
+          fi
+          echo "value=$SUP" >> "$GITHUB_OUTPUT"
+
+      - name: Load self-test telemetry (optional)
+        id: load_selftest
+        run: |
+          if [ -f "codex-selftest/latest.json" ]; then
+            SELF=$(cat codex-selftest/latest.json)
+          else
+            SELF=""
+          fi
+          echo "value=$SELF" >> "$GITHUB_OUTPUT"
+
+      - name: Merge telemetry into codex-data.json
+        run: |
+          EXISTING='${{ steps.load_existing.outputs.existing }}'
+          SUP='${{ steps.load_supervisor.outputs.value }}'
+          SELF='${{ steps.load_selftest.outputs.value }}'
+
+          TEMP="/tmp/merged.json"
+          printf "[\n" > "$TEMP"
+
+          # Add existing entries
+          if [ "$EXISTING" != "[]" ]; then
+            echo "$EXISTING" | sed 's/^\[//' | sed 's/\]$//' >> "$TEMP"
+            if [ "$SUP" != "" ] || [ "$SELF" != "" ]; then
+              printf ",\n" >> "$TEMP"
+            fi
+          fi
+
+          FIRST_NEW=true
+
+          if [ "$SUP" != "" ]; then
+            printf "%s" "$SUP" >> "$TEMP"
+            FIRST_NEW=false
+            if [ "$SELF" != "" ]; then
+              printf ",\n" >> "$TEMP"
+            fi
+          fi
+
+          if [ "$SELF" != "" ]; then
+            printf "%s" "$SELF" >> "$TEMP"
+          fi
+
+          printf "\n]\n" >> "$TEMP"
+
+          mv "$TEMP" codex-data.json
+
+      - name: Commit merged telemetry to gh-pages
+        run: |
+          git add codex-data.json
+          git commit -m "Merge Codex telemetry [skip ci]" || echo "No changes."
+          git push origin gh-pages || echo "Push skipped."

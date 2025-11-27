@@ -1,109 +1,161 @@
+#!/usr/bin/env node
+
 /**
- * Codex Dashboard Generator
- * Adds Codex self-test + supervisor telemetry support
+ * Codex Dashboard Generator v5
+ * ----------------------------
+ * Reads merged telemetry from codex-data.json (supervisor + self-test)
+ * and generates a clean static dashboard: codex/index.html
  */
 
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
 
-const BUILD_DIR = path.join(__dirname, "..", "codex-build");
-const OUTPUT_FILE = path.join(BUILD_DIR, "codex-data.json");
-const SELFTEST_FILE = path.join(BUILD_DIR, "selftest.json");
-const SUPERVISOR_FILE = path.join(BUILD_DIR, "supervisor-latest.json");
+// ----------------------------------------------------------
+// 1. Resolve input/output paths
+// ----------------------------------------------------------
 
-if (!fs.existsSync(BUILD_DIR)) {
-  fs.mkdirSync(BUILD_DIR);
+const inputPath = process.argv[2] || "codex-data.json";
+const outputDir = "codex";
+const outputPath = path.join(outputDir, "index.html");
+
+console.log(`📥 Loading telemetry from: ${inputPath}`);
+
+// ----------------------------------------------------------
+// 2. Load telemetry
+// ----------------------------------------------------------
+
+let telemetry;
+try {
+  const raw = fs.readFileSync(inputPath, "utf8");
+  telemetry = JSON.parse(raw);
+} catch (err) {
+  console.error("❌ ERROR: Failed to load telemetry:", err);
+  process.exit(1);
 }
 
-// -----------------------------------------
-// Load existing dashboard data if present
-// -----------------------------------------
-let codexData = {};
-if (fs.existsSync(OUTPUT_FILE)) {
-  codexData = JSON.parse(fs.readFileSync(OUTPUT_FILE, "utf8"));
+// Safety: establish empty objects if missing
+const supervisor = telemetry.supervisor || {};
+const selftest = telemetry.selftest || {};
+const merged = telemetry.merged || []; // array of unified entries
+
+// ----------------------------------------------------------
+// 3. HTML Helpers
+// ----------------------------------------------------------
+
+const escapeHTML = (str) =>
+  String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+/**
+ * Renders a section block
+ */
+function section(title, inner) {
+  return `
+    <section style="margin-bottom:40px;">
+      <h2>${escapeHTML(title)}</h2>
+      ${inner}
+    </section>
+  `;
 }
 
-// -----------------------------------------
-// Self-test telemetry (existing behaviour)
-// -----------------------------------------
-let telemetry = {
-  last_run: null,
-  last_status: "unknown",
-  last_issue: null,
-  last_pr: null,
-  history: [],
-  stats: {
-    total_runs: 0,
-    success_rate: 0,
-    failures: 0,
-    average_duration: null
-  }
-};
+/**
+ * Renders JSON blocks
+ */
+function jsonBlock(obj) {
+  return `
+    <pre style="
+      background:#111;
+      color:#0f0;
+      padding:16px;
+      border-radius:8px;
+      font-size:14px;
+      overflow-x:auto;
+    ">${escapeHTML(JSON.stringify(obj, null, 2))}</pre>
+  `;
+}
 
-if (fs.existsSync(SELFTEST_FILE)) {
-  const latest = JSON.parse(fs.readFileSync(SELFTEST_FILE, "utf8"));
+/**
+ * Render merged table
+ */
+function mergedTable(items) {
+  if (!items.length) return "<p>No merged telemetry available.</p>";
 
-  if (!codexData.telemetry || !codexData.telemetry.history) {
-    codexData.telemetry = telemetry;
-  }
+  const rows = items
+    .map((it) => {
+      return `
+        <tr>
+          <td>${escapeHTML(it.timestamp || "")}</td>
+          <td>${escapeHTML(it.category || "")}</td>
+          <td>${escapeHTML(it.issue || "")}</td>
+          <td>${escapeHTML(it.status || "")}</td>
+        </tr>
+      `;
+    })
+    .join("");
 
-  let history = codexData.telemetry.history || [];
+  return `
+    <table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse; width:100%;">
+      <thead>
+        <tr style="background:#333; color:white;">
+          <th>Timestamp</th>
+          <th>Category</th>
+          <th>Issue/PR</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
 
-  history.unshift({
-    timestamp: latest.timestamp,
-    status: latest.status,
-    duration_seconds: latest.duration_seconds,
-    issue: latest.issue,
-    pr: latest.pr
-  });
+// ----------------------------------------------------------
+// 4. Build HTML Page
+// ----------------------------------------------------------
 
-  history = history.slice(0, 30);
-
-  const successes = history.filter(h => h.status === "success").length;
-  const failures = history.filter(h => h.status !== "success").length;
-  const durations = history
-    .map(h => h.duration_seconds)
-    .filter(n => typeof n === "number" && n > 0);
-
-  const avg = durations.length
-    ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
-    : null;
-
-  codexData.telemetry = {
-    last_run: latest.timestamp,
-    last_status: latest.status,
-    last_issue: latest.issue,
-    last_pr: latest.pr,
-    history,
-    stats: {
-      total_runs: history.length,
-      success_rate: history.length ? successes / history.length : 0,
-      failures,
-      average_duration: avg
+const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Codex Telemetry Dashboard</title>
+  <style>
+    body {
+      background: #1e1e1e;
+      color: #e2e2e2;
+      font-family: Arial, sans-serif;
+      margin: 20px 40px;
     }
-  };
-}
+    h1, h2, h3 {
+      color: #4dd0ff;
+    }
+    a { color: #82cfff; }
+  </style>
+</head>
 
-// -----------------------------------------
-// Supervisor summary (Codex E-1 supervisor)
-// -----------------------------------------
-if (fs.existsSync(SUPERVISOR_FILE)) {
-  try {
-    const sup = JSON.parse(fs.readFileSync(SUPERVISOR_FILE, "utf8"));
-    codexData.supervisor = {
-      last_run: sup.timestamp || null,
-      last_issue: sup.issue || null,
-      last_pr: sup.pr_url || null,
-      last_status: sup.status || "unknown"
-    };
-  } catch (e) {
-    // If bad JSON, just omit supervisor block
-  }
-}
+<body>
 
-// -----------------------------------------
-// Write final dashboard data
-// -----------------------------------------
-fs.writeFileSync(OUTPUT_FILE, JSON.stringify(codexData, null, 2));
+  <h1>Codex Telemetry Dashboard</h1>
+  <p>Auto-generated from <code>${escapeHTML(inputPath)}</code></p>
 
-console.log("Codex Dashboard generated with telemetry + supervisor support");
+  ${section("Merged Telemetry (Supervisor + Self-Test)", mergedTable(merged))}
+
+  ${section("Supervisor Latest Event", jsonBlock(supervisor))}
+
+  ${section("Self-Test Latest Event", jsonBlock(selftest))}
+
+</body>
+</html>
+`;
+
+// ----------------------------------------------------------
+// 5. Write output
+// ----------------------------------------------------------
+
+if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
+
+fs.writeFileSync(outputPath, html);
+
+console.log(`✅ Dashboard generated: ${outputPath}`);
