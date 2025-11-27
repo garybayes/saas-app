@@ -1,1 +1,15 @@
-[]
+{
+  "selftest": {
+  "timestamp": "2025-11-27T17:36:27Z",
+  "status": "success",
+  "issue": 68
+}
+,
+  "supervisor": {
+  "timestamp": "2025-11-27T17:50:47Z",
+  "project_items": 54,
+  "open_issues": 48,
+  "merged_prs": 0
+}
+
+}
