@@ -55,13 +55,11 @@ jobs:
 
           git init
           git checkout -b gh-pages
-
-          # Recreate authenticated remote
           git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO}.git"
 
-          # Clean workspace and copy built artifact
-          rm -rf ./*
-          cp -R artifact/* .
+          # Artifact structure: artifact/<artifactName>/*
+          # Copy nested folder contents
+          cp -R artifact/*/* . || (echo "Artifact not found" && ls -R . && exit 1)
 
           git add .
           git commit -m "Deploy Codex Dashboard"
