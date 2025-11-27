@@ -1,3 +1,4 @@
+---
 name: Issue Assignment Trigger
 
 on:
@@ -67,4 +68,3 @@ jobs:
           ' -F project=$PROJECT_ID -F item=$ISSUE_ID -F field=$STATUS_FIELD_ID -F option=$OPTION_INPROGRESS_ID
 
           echo "Issue moved to In Progress."
-

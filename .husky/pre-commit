@@ -9,6 +9,19 @@
 echo "🔎 Running ESLint..."
 npm run lint
 
+. "$(dirname "$0")/_/husky.sh"
+
+echo "🔍 Running YAML lint..."
+yamllint .github/workflows
+
+RESULT=$?
+if [ $RESULT -ne 0 ]; then
+  echo "❌ YAML lint failed — fix workflow files before committing."
+  exit 1
+fi
+
+echo "✅ YAML OK"
+
 echo "⚠️  Skipping typecheck (not needed / not defined)"
 echo "⚠️  Skipping tests (Sprint 5 will rebuild them)"
 

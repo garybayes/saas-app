@@ -1,5 +1,13 @@
+---
+name: Project Status
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
   close_issues_and_move_to_done:
-    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
 
     steps:
@@ -8,10 +16,10 @@
         run: |
           echo "issues=$(echo '${{ github.event.pull_request.body }}' | grep -oE '#[0-9]+' | tr -d '#')" >> $GITHUB_OUTPUT
 
-      - name: Stop if no issue references found
+      - name: Stop if false issue references found
         if: ${{ steps.extract.outputs.issues == '' }}
         run: echo "No issues referenced. Skipping."
-          
+
       - name: Close referenced issues
         if: ${{ steps.extract.outputs.issues != '' }}
         run: |

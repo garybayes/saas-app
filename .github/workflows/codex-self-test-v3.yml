@@ -1,4 +1,5 @@
 ---
+# yamllint disable rule:truthy
 name: Codex Self-Test v3
 
 on:
@@ -39,12 +40,11 @@ jobs:
           ISSUE_URL=$(gh issue create \
             --title "Codex Self-Test Cycle" \
             --body "Codex automated self-test verifying issue → project → telemetry pipeline.")
-
           ISSUE_NUM=$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')
           echo "number=$ISSUE_NUM" >> "$GITHUB_OUTPUT"
 
       # ----------------------------------------------------------
-      # 2. Add the issue to the main Codex development project
+      # 2. Add issue to project
       # ----------------------------------------------------------
       - name: Add issue to project
         id: add_to_project
@@ -57,26 +57,29 @@ jobs:
               repository(owner:$owner, name:$repo) {
                 issue(number:$num) { id }
               }
-            }' \
+            }
+          ' \
             -F owner="${GITHUB_REPOSITORY_OWNER}" \
             -F repo="${GITHUB_REPOSITORY#*/}" \
             -F num="$ISSUE_NUM")
 
           ISSUE_NODE_ID=$(echo "$NODE_JSON" | grep -oE '"id":"[^"]*"' | sed 's/"id":"\(.*\)"/\1/')
 
-          ITEM_JSON=$(gh api graphql -f query='
-            mutation($project:ID!, $item:ID!) {
-              addProjectV2ItemById(input:{projectId:$project, contentId:$item}) {
-                item { id }
-              }
-            }' \
+          MUTATION='mutation($project:ID!, $item:ID!) {
+            addProjectV2ItemById(input:{projectId:$project, contentId:$item}) {
+              item { id }
+            }
+          }'
+
+          gh api graphql \
+            -f query="$MUTATION" \
             -F project="$PROJECT_ID" \
-            -F item="$ISSUE_NODE_ID")
+            -F item="$ISSUE_NODE_ID"
 
           echo "Added issue to project."
 
       # ----------------------------------------------------------
-      # 3. Close the test issue (full cycle success)
+      # 3. Close test issue
       # ----------------------------------------------------------
       - name: Close issue
         run: |
@@ -84,7 +87,7 @@ jobs:
             --comment "Codex self-test completed successfully."
 
       # ----------------------------------------------------------
-      # 4. Write telemetry snapshot and commit to main
+      # 4. Write telemetry snapshot
       # ----------------------------------------------------------
       - name: Write telemetry snapshot
         run: |
@@ -93,13 +96,12 @@ jobs:
           TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           ISSUE_NUM="${{ steps.create_issue.outputs.number }}"
 
-          cat > codex-selftest/latest.json <<EOF
-{
-  "timestamp": "$TS",
-  "status": "success",
-  "issue": $ISSUE_NUM
-}
-EOF
+          # write JSON using printf (YAML-safe)
+          printf '{\n' > codex-selftest/latest.json
+          printf '  "timestamp": "%s",\n' "$TS" >> codex-selftest/latest.json
+          printf '  "status": "success",\n' >> codex-selftest/latest.json
+          printf '  "issue": %s\n' "$ISSUE_NUM" >> codex-selftest/latest.json
+          printf '}\n' >> codex-selftest/latest.json
 
           git add codex-selftest/latest.json
           git commit -m "Codex self-test telemetry [skip ci]" || echo "No changes."

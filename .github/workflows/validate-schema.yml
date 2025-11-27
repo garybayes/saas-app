@@ -1,62 +1,29 @@
-name: 🧩 Prisma Schema & Environment Validation
+---
+name: Validate JSON Schema
 
 on:
   push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
+    paths:
+      - "schemas/**"
+      - ".github/workflows/validate-schema.yml"
+
+permissions:
+  contents: read
 
 jobs:
   validate:
-    name: Validate Prisma Schema and Environment
     runs-on: ubuntu-latest
 
     steps:
-      - name: 🧱 Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: ⚙️ Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'npm'
+      - name: Install jq
+        run: sudo apt-get install -y jq
 
-      - name: 📦 Install dependencies
-        run: npm ci
-
-      - name: 🧠 Validate .env.example
+      - name: Validate JSON schema files
         run: |
-          if [ ! -f .env.example ]; then
-            echo "❌ Missing .env.example template file."
-            exit 1
-          fi
-          if grep -q "DATABASE_URL=" .env.example; then
-            echo "✅ .env.example contains DATABASE_URL"
-          else
-            echo "❌ DATABASE_URL missing from .env.example"
-            exit 1
-          fi
-
-      - name: 🧩 Validate Prisma Schema
-        run: |
-          npx prisma validate
-          npx prisma format --check
-          echo "✅ Prisma schema validated and formatted"
-
-      - name: 🧪 Dry-run Prisma generate
-        run: npx prisma generate --no-engine
-
-      - name: 🚫 Ensure .env not committed
-        run: |
-          if [ -f .env ]; then
-            echo "❌ .env file should not be committed. Please remove it."
-            exit 1
-          else
-            echo "✅ No committed .env file found."
-          fi
-
-      - name: 🧱 Build Next.js app
-        run: npm run build
-
-      - name: ✅ Summary
-        run: echo "🎉 Prisma schema and environment validation passed successfully."
+          set -e
+          for FILE in schemas/*.json; do
+            echo "Validating $FILE"
+            jq empty "$FILE"
+          done

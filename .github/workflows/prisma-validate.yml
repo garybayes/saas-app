@@ -1,3 +1,4 @@
+---
 name: Validate Prisma Schema and Environment
 
 on:
@@ -45,7 +46,7 @@ jobs:
         run: npx prisma validate
 
       - name: Dry-run Prisma generate
-        run: npx prisma generate --no-hints --schema=prisma/schema.prisma
+        run: npx prisma generate --false-hints --schema=prisma/schema.prisma
 
       - name: Ensure .env not committed
         run: |

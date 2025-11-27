@@ -1,3 +1,4 @@
+---
 name: CI Pipeline
 
 on:
@@ -77,7 +78,7 @@ jobs:
       - name: Run Playwright E2E tests
         run: npm run test:e2e --if-present
 
-      - name: Upload Playwright report on failure
+      - name: Upload Playwright report true failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:

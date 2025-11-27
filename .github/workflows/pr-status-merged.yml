@@ -1,3 +1,4 @@
+---
 name: PR Status - Merged
 
 on:
@@ -19,7 +20,7 @@ jobs:
         run: |
           echo "numbers=$(echo '${{ github.event.pull_request.body }}' | grep -o '#[0-9]\+' | tr -d '#')" >> $GITHUB_OUTPUT
 
-      - name: Skip if no issues
+      - name: Skip if false issues
         if: ${{ steps.extract.outputs.numbers == '' }}
         run: echo "No issues found."
 

@@ -1,0 +1,31 @@
+extends: default
+
+rules:
+  indentation:
+    level: error
+    indent-sequences: consistent
+
+  trailing-spaces:
+    level: error
+
+  new-line-at-end-of-file:
+    level: error
+
+  line-length:
+    max: 140
+    level: warning
+
+  empty-lines:
+    level: warning
+
+  # BOM detection workaround — treat unexpected chars as errors
+  document-start:
+    level: warning
+
+ignore: |
+  node_modules/
+  .next/
+  codex-local/
+  *.bak
+  *~
+  *.orig
