@@ -9,7 +9,6 @@ on:
       - main
     paths:
       - codex/**
-      - codex-data.json
       - .github/workflows/deploy-codex-dashboard.yml
 
 permissions:
@@ -20,57 +19,101 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout main branch
         uses: actions/checkout@v4
 
-      - name: Prepare Git identity
+      - name: Configure git identity
         run: |
           git config --global user.name "codex-ci-bot"
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
+      # ---------------------------------------------------------
+      # Prepare gh-pages worktree (source of telemetry)
+      # ---------------------------------------------------------
       - name: Prepare gh-pages worktree
         run: |
           set -e
 
-          # Remove any old worktree reference
+          # Remove old worktree if exists
           if git worktree list | grep -q gh-pages-worktree; then
             git worktree remove gh-pages-worktree --force
           fi
 
-          # Fetch branch if exists, create if missing
-          if git show-ref --quiet refs/heads/gh-pages; then
-            echo "gh-pages exists"
-          else
-            echo "Creating gh-pages branch"
-            git branch gh-pages
+          # Ensure gh-pages exists
+          if ! git show-ref --quiet refs/heads/gh-pages; then
+            git branch gh-pages origin/gh-pages || git branch gh-pages
           fi
 
-          # Create fresh worktree
           git worktree add gh-pages-worktree gh-pages
 
-      - name: Build Codex dashboard output
+      # ---------------------------------------------------------
+      # Load telemetry FROM gh-pages
+      # ---------------------------------------------------------
+      - name: Load telemetry from gh-pages
+        id: load
+        run: |
+          set -e
+
+          SELFTEST="gh-pages-worktree/codex-selftest/latest.json"
+          SUPERVISOR="gh-pages-worktree/supervisor-telemetry/latest.json"
+
+          # If missing, fallback to empty objects
+          test -f "$SELFTEST" || echo '{}' > "$SELFTEST"
+          test -f "$SUPERVISOR" || echo '{}' > "$SUPERVISOR"
+
+          echo "Telemetry loaded."
+
+      # ---------------------------------------------------------
+      # Build new dashboard HTML
+      # ---------------------------------------------------------
+      - name: Build Codex Dashboard HTML
         run: |
           node codex/generate.cjs
 
-      - name: Copy artifacts into worktree
+      # ---------------------------------------------------------
+      # Generate new aggregated codex-data.json
+      # ---------------------------------------------------------
+      - name: Build updated codex-data.json
+        run: |
+          set -e
+          mkdir -p artifacts
+
+          SELFTEST="gh-pages-worktree/codex-selftest/latest.json"
+          SUPERVISOR="gh-pages-worktree/supervisor-telemetry/latest.json"
+
+          printf '{\n' > artifacts/codex-data.json
+          printf '  "selftest": ' >> artifacts/codex-data.json
+          cat "$SELFTEST" >> artifacts/codex-data.json
+          printf ',\n' >> artifacts/codex-data.json
+          printf '  "supervisor": ' >> artifacts/codex-data.json
+          cat "$SUPERVISOR" >> artifacts/codex-data.json
+          printf '\n}\n' >> artifacts/codex-data.json
+
+      # ---------------------------------------------------------
+      # Copy updated dashboard + telemetry to gh-pages
+      # ---------------------------------------------------------
+      - name: Update gh-pages
         run: |
           set -e
 
           cp codex/index.html gh-pages-worktree/index.html
-          cp codex-data.json gh-pages-worktree/codex-data.json
+          cp artifacts/codex-data.json gh-pages-worktree/codex-data.json
 
-          # Ensure clean directory
-          mkdir -p gh-pages-worktree
+          echo "Copied updated files into gh-pages."
 
-      - name: Commit + push
+      # ---------------------------------------------------------
+      # Commit + push
+      # ---------------------------------------------------------
+      - name: Commit and push to gh-pages
         run: |
           cd gh-pages-worktree
-
           git add -A
-          git commit -m "Deploy Codex Dashboard $(date -u +%Y-%m-%dT%H:%M:%SZ)" || echo "Nothing to commit."
-
+          git commit -m "Deploy Codex Dashboard $(date -u +%Y-%m-%dT%H:%M:%SZ)" || echo "No changes to commit."
           git push origin gh-pages
 
-      - name: Cleanup worktree
+      # ---------------------------------------------------------
+      # Cleanup
+      # ---------------------------------------------------------
+      - name: Cleanup
         run: |
           git worktree remove gh-pages-worktree --force || true
