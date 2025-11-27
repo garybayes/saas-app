@@ -51,7 +51,8 @@ jobs:
           git checkout -b gh-pages
 
           # Add remote explicitly (required in GitHub Actions ephemeral workspace)
-          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          # 💡 FIX: Restore origin using the GitHub Token
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
           # Prepare clean gh-pages workspace
           cp -R . ../deploy-tmp/
