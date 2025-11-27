@@ -5,61 +5,78 @@ name: Deploy Codex Dashboard
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     paths:
-      - "codex/**"
-      - ".github/workflows/deploy-codex-dashboard.yml"
+      - codex/**
+      - codex-data.json
+      - .github/workflows/deploy-codex-dashboard.yml
 
 permissions:
   contents: write
   pages: write
-  id-token: write
 
 jobs:
-  build:
+  build-deploy-dashboard:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Build dashboard artifact
+      - name: Configure git identity
         run: |
-          mkdir -p dashboard-build
-          cp codex/index.html dashboard-build/
-          cp codex-data.json dashboard-build/ || echo "No codex-data.json"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: codex-dashboard
-          path: dashboard-build/
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: codex-dashboard
-          path: artifact
-
-      - name: Deploy to gh-pages
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -e
-
-          git config --global user.email "codex-ci-bot@users.noreply.github.com"
           git config --global user.name "codex-ci-bot"
+          git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
-          git init
-          git checkout -b gh-pages
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO}.git"
+      - name: Checkout gh-pages worktree
+        run: |
+          rm -rf ghp
+          git worktree add ghp gh-pages
 
-          # Copy artifact contents (flat artifact)
-          cp -R artifact/* . || (echo "Artifact not found" && ls -R . && exit 1)
+      - name: Fetch supervisor telemetry
+        id: supervisor
+        run: |
+          if [ -f ghp/supervisor-telemetry/latest.json ]; then
+            SUP=$(cat ghp/supervisor-telemetry/latest.json)
+          else
+            SUP="null"
+          fi
+          echo "sup=$SUP" >> "$GITHUB_OUTPUT"
 
-          git add .
-          git commit -m "Deploy Codex Dashboard"
-          git push --force origin gh-pages
+      - name: Fetch self-test telemetry
+        id: selftest
+        run: |
+          if [ -f ghp/codex-selftest/latest.json ]; then
+            ST=$(cat ghp/codex-selftest/latest.json)
+          else
+            ST="null"
+          fi
+          echo "st=$ST" >> "$GITHUB_OUTPUT"
+
+      - name: Merge telemetry into codex-data.json
+        run: |
+          mkdir -p ghp
+          jq -n \
+            --argjson sup "${{ steps.supervisor.outputs.sup }}" \
+            --argjson st  "${{ steps.selftest.outputs.st }}" \
+            '{
+              supervisor: $sup,
+              selftest: $st
+            }' > ghp/codex-data.json
+
+      - name: Build dashboard index.html
+        run: |
+          mkdir -p ghp
+          cp codex/index.html ghp/index.html
+
+          # Inject JSON into placeholder
+          DATA=$(cat ghp/codex-data.json | jq -c .)
+          sed -i "s|__CODEX_DATA__|$DATA|" ghp/index.html
+
+      - name: Commit and push dashboard to gh-pages
+        run: |
+          cd ghp
+          git add codex-data.json index.html
+          git commit -m "Dashboard updated with merged telemetry [skip ci]" || echo "No changes"
+          git push origin gh-pages
