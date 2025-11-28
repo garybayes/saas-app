@@ -1,6 +1,5 @@
 ---
 # yamllint disable rule:truthy
-
 name: Codex Dual-Track Supervisor v2
 
 on:
@@ -31,20 +30,85 @@ jobs:
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
       # --------------------------------------------------------------------
-      # 1. Gather Supervisor Telemetry
+      # 1. Scan open issues and build dual-track summary
       # --------------------------------------------------------------------
       - name: Generate supervisor telemetry snapshot
         run: |
           set -e
+
+          OWNER="${GITHUB_REPOSITORY_OWNER}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+
+          # Fetch open issues (first page is usually enough, adjust if needed)
+          ISSUES_JSON=$(gh api "/repos/$OWNER/$REPO/issues?state=open&per_page=100")
+
+          # Build per-track issue lists
+          sprint5=$(
+            echo "$ISSUES_JSON" | jq '
+              [ .[]
+              | select(.milestone != null and .milestone.title == "Sprint 5 Completion")
+              | { number, title }
+              ]
+            '
+          )
+
+          dashboard_v2=$(
+            echo "$ISSUES_JSON" | jq '
+              [ .[]
+              | select(.milestone != null and .milestone.title == "Codex Dashboard V2")
+              | { number, title }
+              ]
+            '
+          )
+
+          dashboard_v3=$(
+            echo "$ISSUES_JSON" | jq '
+              [ .[]
+              | select(.milestone != null and .milestone.title == "Dashboard V3")
+              | { number, title }
+              ]
+            '
+          )
+
+          # Counts per track
+          sprint5_count=$(echo "$sprint5" | jq 'length')
+          dashboard_v2_count=$(echo "$dashboard_v2" | jq 'length')
+          dashboard_v3_count=$(echo "$dashboard_v3" | jq 'length')
+
+          # "Next issue" per track (lowest-numbered open issue, or null)
+          sprint5_next=$(echo "$sprint5" | jq '.[0].number // null')
+          dashboard_v2_next=$(echo "$dashboard_v2" | jq '.[0].number // null')
+          dashboard_v3_next=$(echo "$dashboard_v3" | jq '.[0].number // null')
+
           mkdir -p supervisor-telemetry
 
           TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          printf '{\n' > supervisor-telemetry/latest.json
-          printf '  "timestamp": "%s",\n' "$TS" >> supervisor-telemetry/latest.json
-          printf '  "status": "ok",\n' >> supervisor-telemetry/latest.json
-          printf '  "source": "supervisor-v2"\n' >> supervisor-telemetry/latest.json
-          printf '}\n' >> supervisor-telemetry/latest.json
+          # Write JSON using echo/printf (YAML-safe)
+          {
+            echo "{"
+            echo "  \"timestamp\": \"$TS\","
+            echo "  \"status\": \"ok\","
+            echo "  \"source\": \"supervisor-v2\","
+            echo "  \"tracks\": {"
+            echo "    \"sprint5\": {"
+            echo "      \"open_count\": $sprint5_count,"
+            echo "      \"next_issue\": $sprint5_next,"
+            echo "      \"issues\": $sprint5"
+            echo "    },"
+            echo "    \"dashboard_v2\": {"
+            echo "      \"open_count\": $dashboard_v2_count,"
+            echo "      \"next_issue\": $dashboard_v2_next,"
+            echo "      \"issues\": $dashboard_v2"
+            echo "    },"
+            echo "    \"dashboard_v3\": {"
+            echo "      \"open_count\": $dashboard_v3_count,"
+            echo "      \"next_issue\": $dashboard_v3_next,"
+            echo "      \"issues\": $dashboard_v3"
+            echo "    }"
+            echo "  }"
+            echo "}"
+          } > supervisor-telemetry/latest.json
 
       # --------------------------------------------------------------------
       # 2. Commit telemetry directly to gh-pages
@@ -58,8 +122,6 @@ jobs:
 
       # --------------------------------------------------------------------
       # 3. Trigger Telemetry Merge Workflow
-      #
-      # This workflow runs AFTER supervisor telemetry has been written.
       # --------------------------------------------------------------------
       - name: Trigger Telemetry Merge workflow
         run: |
