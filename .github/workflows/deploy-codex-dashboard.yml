@@ -1,49 +1,74 @@
 ---
 # yamllint disable rule:truthy
-name: Deploy Codex Dashboard (Main → gh-pages)
+name: Deploy Codex Dashboard
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - main
-
-permissions:
-  contents: write
+    paths:
+      - "codex/**"
+      - ".github/workflows/deploy-codex-dashboard.yml"
 
 jobs:
   deploy-dashboard:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     steps:
-      - name: Checkout main
-        uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build dashboard assets
-        run: node codex/generate.cjs
-
+      # -----------------------------------------
+      # 1. Checkout gh-pages
+      # -----------------------------------------
       - name: Checkout gh-pages branch
         uses: actions/checkout@v4
         with:
           ref: gh-pages
-          path: gh-pages-worktree
 
-      - name: Copy generated dashboard to gh-pages
-        run: |
-          cp codex/index.html gh-pages-worktree/index.html
-          cp codex-data.json gh-pages-worktree/codex-data.json
+      # -----------------------------------------
+      # 2. Setup Node
+      # -----------------------------------------
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
-      - name: Commit and push to gh-pages
+      # -----------------------------------------
+      # 3. Install dependencies (for generate.mjs)
+      # -----------------------------------------
+      - name: Install dependencies
         run: |
-          cd gh-pages-worktree
-          git add index.html codex-data.json
-          git commit -m "Deploy updated Codex Dashboard [skip ci]" || echo "No changes."
-          git push origin gh-pages || echo "Push skipped."
+          npm install
+
+      # -----------------------------------------
+      # 4. Run generator to rebuild the dashboard
+      # -----------------------------------------
+      - name: Generate dashboard
+        run: |
+          echo "Running dashboard generator..."
+          node codex/generate.mjs
+
+      # -----------------------------------------
+      # 5. Commit + push updated dashboard
+      # -----------------------------------------
+      - name: Commit and push updated dashboard
+        run: |
+          set -e
+
+          git config --global user.name "codex-ci-bot"
+          git config --global user.email "codex-ci-bot@users.noreply.github.com"
+
+          git add index.html codex-data.json || true
+
+          # Allow "no changes" without failing the workflow
+          git commit -m "Deploy updated Codex dashboard [skip ci]" || {
+            echo "No changes to commit"
+            exit 0
+          }
+
+          git push origin gh-pages
