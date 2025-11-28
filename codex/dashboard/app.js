@@ -2,7 +2,7 @@ async function loadTelemetry() {
   const el = document.getElementById("container");
 
   try {
-    const res = await fetch("./codex-data.json?" + Date.now());
+    const res = await fetch("../codex-data.json?" + Date.now());
     if (!res.ok) throw new Error("Telemetry not found");
 
     const data = await res.json();
