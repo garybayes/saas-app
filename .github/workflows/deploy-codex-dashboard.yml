@@ -18,48 +18,35 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout gh-pages branch
         uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          persist-credentials: true
 
       - name: Configure Git identity
         run: |
           git config --global user.name "codex-ci-bot"
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
-      # ----------------------------------------------------------
-      # 1. Prepare gh-pages worktree
-      # ----------------------------------------------------------
-      - name: Checkout gh-pages branch into worktree
+      # --------------------------------------------
+      # Copy dashboard files into the gh-pages branch
+      # --------------------------------------------
+      - name: Copy updated dashboard files
         run: |
-          git fetch origin gh-pages
-          git worktree add gh-pages-worktree gh-pages
+          rm -rf dashboard
+          mkdir -p dashboard
+          cp -R ../codex/dashboard/* dashboard/
 
-      # ----------------------------------------------------------
-      # 2. Copy dashboard files
-      # ----------------------------------------------------------
-      - name: Copy dashboard HTML/JS/CSS
-        run: |
-          # Clean old dashboard folder
-          rm -rf gh-pages-worktree/dashboard
-
-          # Create fresh directory
-          mkdir -p gh-pages-worktree/dashboard
-
-          # Copy new dashboard files
-          cp -R codex/dashboard/* gh-pages-worktree/dashboard/
-
-      # ----------------------------------------------------------
-      # 3. Commit + push updated dashboard
-      # ----------------------------------------------------------
+      # --------------------------------------------
+      # Commit and push only if changes exist
+      # --------------------------------------------
       - name: Commit and push changes
         run: |
-          cd gh-pages-worktree
-
           git add .
 
-          # Commit only if something actually changed
           if ! git diff --cached --quiet; then
-            git commit -m "Update Codex Dashboard [skip ci]"
+            git commit -m "Deploy updated Codex dashboard [skip ci]"
             git push origin gh-pages
           else
             echo "No dashboard changes detected."

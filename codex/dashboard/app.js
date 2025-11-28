@@ -7,25 +7,49 @@ async function loadTelemetry() {
 
     const data = await res.json();
 
-    if (!Array.isArray(data) || data.length === 0) {
-      el.innerHTML = "<p>No telemetry entries.</p>";
+    // Expecting object: { updated_at, supervisor, selftest }
+    if (!data || typeof data !== "object") {
+      el.innerHTML = "<p>Invalid telemetry format.</p>";
       return;
     }
 
     el.innerHTML = "";
 
-    for (const entry of data.reverse()) {
+    // Render supervisor block
+    if (data.supervisor) {
       el.innerHTML += `
         <div class="entry">
-          <strong>${entry.type}</strong><br>
-          <strong>Timestamp:</strong> ${entry.timestamp}<br>
-          <strong>Issue:</strong> ${entry.issue ?? "—"}<br>
-          <strong>PR:</strong> ${entry.pr ?? "—"}<br>
-          <strong>Status:</strong> ${entry.status}<br>
+          <strong>Supervisor</strong><br>
+          <strong>Timestamp:</strong> ${data.supervisor.timestamp}<br>
+          <strong>Status:</strong> ${data.supervisor.status}<br>
+          <strong>Source:</strong> ${data.supervisor.source}<br>
         </div>
       `;
     }
+
+    // Render self-test block
+    if (data.selftest) {
+      el.innerHTML += `
+        <div class="entry">
+          <strong>Self-Test</strong><br>
+          <strong>Timestamp:</strong> ${data.selftest.timestamp}<br>
+          <strong>Status:</strong> ${data.selftest.status}<br>
+          <strong>Issue:</strong> ${data.selftest.issue ?? "—"}<br>
+          <strong>Source:</strong> ${data.selftest.source}<br>
+        </div>
+      `;
+    }
+
+    // Render merged overview
+    el.innerHTML += `
+      <div class="entry">
+        <strong>Merged Dataset</strong><br>
+        <pre>${JSON.stringify(data, null, 2)}</pre>
+      </div>
+    `;
+
   } catch (err) {
+    console.error(err);
     el.innerHTML = "<p>Error loading telemetry.</p>";
   }
 }
