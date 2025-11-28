@@ -18,10 +18,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout gh-pages branch
+      # ----------------------------------------------------------
+      # 1. Checkout main (source)
+      # ----------------------------------------------------------
+      - name: Checkout main branch into project-main/
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: project-main
+
+      # ----------------------------------------------------------
+      # 2. Checkout gh-pages (target)
+      # ----------------------------------------------------------
+      - name: Checkout gh-pages branch into project-gh-pages/
         uses: actions/checkout@v4
         with:
           ref: gh-pages
+          path: project-gh-pages
           persist-credentials: true
 
       - name: Configure Git identity
@@ -29,24 +42,27 @@ jobs:
           git config --global user.name "codex-ci-bot"
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
-      # --------------------------------------------
-      # Copy dashboard files into the gh-pages branch
-      # --------------------------------------------
-      - name: Copy updated dashboard files
+      # ----------------------------------------------------------
+      # 3. Copy dashboard files FROM main TO gh-pages
+      # ----------------------------------------------------------
+      - name: Copy dashboard files
         run: |
-          rm -rf dashboard
-          mkdir -p dashboard
-          cp -R ../codex/dashboard/* dashboard/
+          rm -rf project-gh-pages/dashboard
+          mkdir -p project-gh-pages/dashboard
 
-      # --------------------------------------------
-      # Commit and push only if changes exist
-      # --------------------------------------------
-      - name: Commit and push changes
+          cp -R project-main/codex/dashboard/* project-gh-pages/dashboard/
+
+      # ----------------------------------------------------------
+      # 4. Commit + push changes if any
+      # ----------------------------------------------------------
+      - name: Commit and push dashboard updates
         run: |
+          cd project-gh-pages
+
           git add .
 
           if ! git diff --cached --quiet; then
-            git commit -m "Deploy updated Codex dashboard [skip ci]"
+            git commit -m "Deploy Codex Dashboard [skip ci]"
             git push origin gh-pages
           else
             echo "No dashboard changes detected."
