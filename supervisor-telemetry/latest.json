@@ -1,5 +1,149 @@
 {
-  "timestamp": "2025-11-28T02:56:09Z",
+  "timestamp": "2025-11-28T03:09:57Z",
   "status": "ok",
-  "source": "supervisor-v2"
+  "source": "supervisor-v2",
+  "tracks": {
+    "sprint5": {
+      "open_count": 12,
+      "next_issue": 19,
+      "issues": [
+  {
+    "number": 19,
+    "title": "Stabilize CI Pipeline"
+  },
+  {
+    "number": 18,
+    "title": "Fix Playwright flakiness"
+  },
+  {
+    "number": 17,
+    "title": "Rebuild Playwright suite"
+  },
+  {
+    "number": 16,
+    "title": "Rebuild unit tests for Sprint 5"
+  },
+  {
+    "number": 15,
+    "title": "Rewrite seed script for Sprint 5"
+  },
+  {
+    "number": 14,
+    "title": "Fix Prisma migration chain"
+  },
+  {
+    "number": 13,
+    "title": "Add workflow integration tests"
+  },
+  {
+    "number": 12,
+    "title": "Implement LOAD workflow endpoint"
+  },
+  {
+    "number": 11,
+    "title": "Implement SAVE workflow endpoint"
+  },
+  {
+    "number": 10,
+    "title": "Validate workflow JSON schema"
+  },
+  {
+    "number": 9,
+    "title": "Implement connector line rendering"
+  },
+  {
+    "number": 8,
+    "title": "Fix drag-and-drop node placement"
+  }
+]
+    },
+    "dashboard_v2": {
+      "open_count": 14,
+      "next_issue": 33,
+      "issues": [
+  {
+    "number": 33,
+    "title": "Add last-updated timestamp"
+  },
+  {
+    "number": 32,
+    "title": "Compress and minify dashboard data"
+  },
+  {
+    "number": 31,
+    "title": "Enable lazy-loading of charts"
+  },
+  {
+    "number": 30,
+    "title": "Split Codex data into modular JSON files"
+  },
+  {
+    "number": 29,
+    "title": "Add PR history panel"
+  },
+  {
+    "number": 28,
+    "title": "Add branch comparison view"
+  },
+  {
+    "number": 27,
+    "title": "Add error heatmap"
+  },
+  {
+    "number": 26,
+    "title": "Add test pass/fail bar chart"
+  },
+  {
+    "number": 25,
+    "title": "Add workflow duration trend chart"
+  },
+  {
+    "number": 24,
+    "title": "Add commit timeline chart"
+  },
+  {
+    "number": 23,
+    "title": "Implement touch-friendly charts"
+  },
+  {
+    "number": 22,
+    "title": "Add mobile-friendly tab navigation"
+  },
+  {
+    "number": 21,
+    "title": "Add mobile sidebar navigation"
+  },
+  {
+    "number": 20,
+    "title": "Redesign dashboard layout"
+  }
+]
+    },
+    "dashboard_v3": {
+      "open_count": 5,
+      "next_issue": 51,
+      "issues": [
+  {
+    "number": 51,
+    "title": "Dashboard V3: Historical Telemetry Timeline"
+  },
+  {
+    "number": 50,
+    "title": "Dashboard V3: Data Reliability Score"
+  },
+  {
+    "number": 49,
+    "title": "Dashboard V3: Self-Healing Fallback Routines"
+  },
+  {
+    "number": 48,
+    "title": "Dashboard V3: Codex Integrity Monitor"
+  },
+  {
+    "number": 47,
+    "title": "Dashboard V3: Telemetry Visualization Layer"
+  }
+]
+    }
+  }
 }
