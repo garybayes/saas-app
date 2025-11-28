@@ -1,9 +1,15 @@
 ---
 # yamllint disable rule:truthy
-name: Merge Codex Telemetry
+name: Codex Telemetry Merge
 
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows:
+      - "Codex Dual-Track Supervisor v2"
+      - "Codex Self-Test v4"
+    types:
+      - completed
 
 permissions:
   contents: write
@@ -13,84 +19,46 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout gh-pages branch
+      - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
 
-      - name: Prepare environment
-        run: |
-          mkdir -p supervisor-telemetry
-          mkdir -p codex-selftest
-
-      - name: Load existing codex-data.json (if exists)
-        id: load_existing
-        run: |
-          if [ -f "codex-data.json" ]; then
-            EXISTING=$(cat codex-data.json)
-          else
-            EXISTING="[]"
-          fi
-
-          echo "existing=$EXISTING" >> "$GITHUB_OUTPUT"
-
-      - name: Load supervisor telemetry (optional)
-        id: load_supervisor
-        run: |
-          if [ -f "supervisor-telemetry/latest.json" ]; then
-            SUP=$(cat supervisor-telemetry/latest.json)
-          else
-            SUP=""
-          fi
-          echo "value=$SUP" >> "$GITHUB_OUTPUT"
-
-      - name: Load self-test telemetry (optional)
-        id: load_selftest
-        run: |
-          if [ -f "codex-selftest/latest.json" ]; then
-            SELF=$(cat codex-selftest/latest.json)
-          else
-            SELF=""
-          fi
-          echo "value=$SELF" >> "$GITHUB_OUTPUT"
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
       - name: Merge telemetry into codex-data.json
         run: |
-          EXISTING='${{ steps.load_existing.outputs.existing }}'
-          SUP='${{ steps.load_supervisor.outputs.value }}'
-          SELF='${{ steps.load_selftest.outputs.value }}'
+          mkdir -p supervisor-telemetry codex-selftest
 
-          TEMP="/tmp/merged.json"
-          printf "[\n" > "$TEMP"
+          SUP_FILE="supervisor-telemetry/latest.json"
+          SELF_FILE="codex-selftest/latest.json"
+          OUT_FILE="codex-data.json"
 
-          # Add existing entries
-          if [ "$EXISTING" != "[]" ]; then
-            echo "$EXISTING" | sed 's/^\[//' | sed 's/\]$//' >> "$TEMP"
-            if [ "$SUP" != "" ] || [ "$SELF" != "" ]; then
-              printf ",\n" >> "$TEMP"
-            fi
+          SUP="{}"
+          SELF="{}"
+
+          if [ -f "$SUP_FILE" ]; then
+            SUP=$(cat "$SUP_FILE")
           fi
 
-          FIRST_NEW=true
-
-          if [ "$SUP" != "" ]; then
-            printf "%s" "$SUP" >> "$TEMP"
-            FIRST_NEW=false
-            if [ "$SELF" != "" ]; then
-              printf ",\n" >> "$TEMP"
-            fi
+          if [ -f "$SELF_FILE" ]; then
+            SELF=$(cat "$SELF_FILE")
           fi
 
-          if [ "$SELF" != "" ]; then
-            printf "%s" "$SELF" >> "$TEMP"
-          fi
+          printf '{\n' > "$OUT_FILE"
+          printf '  "updated_at": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$OUT_FILE"
+          printf '  "supervisor": %s,\n' "$SUP" >> "$OUT_FILE"
+          printf '  "selftest": %s\n' "$SELF" >> "$OUT_FILE"
+          printf '}\n' >> "$OUT_FILE"
 
-          printf "\n]\n" >> "$TEMP"
-
-          mv "$TEMP" codex-data.json
-
-      - name: Commit merged telemetry to gh-pages
+      - name: Commit and push merged telemetry
         run: |
+          git config --global user.name "codex-ci-bot"
+          git config --global user.email "codex-ci-bot@users.noreply.github.com"
+
           git add codex-data.json
-          git commit -m "Merge Codex telemetry [skip ci]" || echo "No changes."
-          git push origin gh-pages || echo "Push skipped."
+          git commit -m "Merged telemetry update [skip ci]" || echo "No changes."
+          git push origin gh-pages
