@@ -116,5 +116,5 @@ jobs:
       # ----------------------------------------------------------
       - name: Trigger Telemetry Merge Workflow
         run: |
-          gh workflow run codex-telemetry-merge.yml -f reason="self-test-update"
+          gh workflow run codex-telemetry-merge.yml
           echo "Triggered telemetry merge workflow."

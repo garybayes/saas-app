@@ -4,6 +4,11 @@ name: Deploy Codex Dashboard
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "codex/dashboard/**"
 
 permissions:
   contents: write
@@ -13,39 +18,49 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout gh-pages (output branch)
-      - name: Checkout gh-pages
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: gh-pages
 
-      # ALSO checkout main (source branch)
-      - name: Checkout main into workspace/main-src
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          path: main-src
-
-      - name: Use Node 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Copy generator into gh-pages
-        run: |
-          mkdir -p codex
-          cp main-src/codex/generate.mjs codex/generate.mjs
-          echo "Generator copied successfully."
-
-      - name: Run dashboard generator
-        run: |
-          node codex/generate.mjs
-
-      - name: Commit and push updated dashboard
+      - name: Configure Git identity
         run: |
           git config --global user.name "codex-ci-bot"
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
-          git add index.html codex-data.json || true
-          git commit -m "Update Codex Dashboard [skip ci]" || echo "No changes to commit"
-          git push origin gh-pages
+      # ----------------------------------------------------------
+      # 1. Prepare gh-pages worktree
+      # ----------------------------------------------------------
+      - name: Checkout gh-pages branch into worktree
+        run: |
+          git fetch origin gh-pages
+          git worktree add gh-pages-worktree gh-pages
+
+      # ----------------------------------------------------------
+      # 2. Copy dashboard files
+      # ----------------------------------------------------------
+      - name: Copy dashboard HTML/JS/CSS
+        run: |
+          # Clean old dashboard folder
+          rm -rf gh-pages-worktree/dashboard
+
+          # Create fresh directory
+          mkdir -p gh-pages-worktree/dashboard
+
+          # Copy new dashboard files
+          cp -R codex/dashboard/* gh-pages-worktree/dashboard/
+
+      # ----------------------------------------------------------
+      # 3. Commit + push updated dashboard
+      # ----------------------------------------------------------
+      - name: Commit and push changes
+        run: |
+          cd gh-pages-worktree
+
+          git add .
+
+          # Commit only if something actually changed
+          if ! git diff --cached --quiet; then
+            git commit -m "Update Codex Dashboard [skip ci]"
+            git push origin gh-pages
+          else
+            echo "No dashboard changes detected."
+          fi
