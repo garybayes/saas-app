@@ -1,5 +1,5 @@
 {
-  "updated_at": "2025-11-28T05:54:19Z",
+  "updated_at": "2025-11-28T06:29:23Z",
   "supervisor": {
   "timestamp": "2025-11-28T05:54:05Z",
   "status": "ok",
@@ -150,9 +150,9 @@
   }
 },
   "selftest": {
-  "timestamp": "2025-11-28T02:28:06Z",
+  "timestamp": "2025-11-28T06:29:11Z",
   "status": "success",
-  "issue": 74,
+  "issue": 75,
   "source": "self-test-v4"
 }
 }
