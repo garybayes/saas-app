@@ -1,5 +1,9 @@
 {
-  "timestamp": "2025-11-29T03:32:20Z",
+  "timestamp": "2025-11-29T03:32:48Z",
   "status": "ok",
-  "source": "supervisor-v3"
+  "source": "activity-engine-v1",
+  "pr_open": 0,
+  "issues_open": 30,
+  "pr_stale": 0,
+  "issues_blocked": 0
 }
