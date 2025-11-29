@@ -1,0 +1,174 @@
+---
+# yamllint disable rule:truthy
+name: Codex Supervisor Activity Engine v2
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # Runs every 30 minutes
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: read
+  project: write
+
+jobs:
+  activity-engine:
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+      REPO: ${{ github.repository }}
+      OWNER: ${{ github.repository_owner }}
+      PROJECT_NUMBER: 1
+
+    steps:
+      # --------------------------------------------------------------
+      # 0. Checkout gh-pages (telemetry lives on gh-pages only)
+      # --------------------------------------------------------------
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          fetch-depth: 1
+
+      - name: Configure git identity
+        run: |
+          git config --global user.name "codex-ci-bot"
+          git config --global user.email "codex-ci-bot@users.noreply.github.com"
+
+      # --------------------------------------------------------------
+      # 1. Scan repository state (PRs + issues)
+      # --------------------------------------------------------------
+      - name: Fetch open PRs
+        id: prscan
+        run: |
+          set -e
+          PRS_JSON=$(gh pr list --state open --json number,title,updatedAt,author,url)
+          echo "$PRS_JSON" > pr.json
+
+          PR_COUNT=$(echo "$PRS_JSON" | jq -r 'length')
+          echo "count=$PR_COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch open issues
+        id: issuescan
+        run: |
+          set -e
+          ISSUES_JSON=$(gh issue list --state open --json number,title,labels,updatedAt,url)
+          echo "$ISSUES_JSON" > issues.json
+
+          ISSUE_COUNT=$(echo "$ISSUES_JSON" | jq -r 'length')
+          echo "count=$ISSUE_COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Detect stale PRs (> 24h unchanged)
+        id: stalescan
+        run: |
+          set -e
+          STALE_JSON=$(jq '[ .[] | select((now - (.updatedAt | fromdate)) > 86400) ]' pr.json)
+          echo "$STALE_JSON" > stale-prs.json
+
+          STALE_COUNT=$(echo "$STALE_JSON" | jq -r 'length')
+          echo "count=$STALE_COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Detect blocked issues (label: blocked)
+        id: blockerscan
+        run: |
+          set -e
+          BLOCKERS_JSON=$(jq '[ .[] | select(.labels[].name? == "blocked") ]' issues.json)
+          echo "$BLOCKERS_JSON" > blockers.json
+
+          BLOCKED_COUNT=$(echo "$BLOCKERS_JSON" | jq -r 'length')
+          echo "count=$BLOCKED_COUNT" >> "$GITHUB_OUTPUT"
+
+      # --------------------------------------------------------------
+      # 2. Supervisor actions (comments / labels / project sync)
+      # --------------------------------------------------------------
+      - name: Leave comments on stale PRs (if any)
+        if: steps.stalescan.outputs.count != '0'
+        run: |
+          echo "Stale PRs detected. Sending reminders..."
+          jq -r '.[].number' stale-prs.json | while read PR; do
+            gh pr comment "$PR" --body "⏰ **Codex Supervisor:** This PR appears stale. Please review, update, or close it."
+          done
+
+      - name: Escalate blocked issues
+        if: steps.blockerscan.outputs.count != '0'
+        run: |
+          echo "Blocked issues detected. Tagging and commenting..."
+          jq -r '.[].number' blockers.json | while read ISS; do
+            gh issue edit "$ISS" --add-label "needs-attention"
+            gh issue comment "$ISS" --body "🚨 **Codex Supervisor:** This issue is marked *blocked*. Please provide an update or resolution plan."
+          done
+
+      - name: Ensure sprint issues are in Codex Dual-Track project
+        run: |
+          echo "Syncing sprint issues into project $PROJECT_NUMBER for owner $OWNER..."
+
+          # Extract only issues that have label: sprint
+          SPRINT_ISSUES=$(jq '[ .[] | select(.labels[].name? == "sprint") ]' issues.json)
+          echo "$SPRINT_ISSUES" > sprint-issues.json
+
+          SPRINT_COUNT=$(echo "$SPRINT_ISSUES" | jq -r 'length')
+          echo "Detected $SPRINT_COUNT sprint-labeled issues."
+
+          if [ "$SPRINT_COUNT" -eq 0 ]; then
+            echo "No sprint issues to sync."
+            exit 0
+          fi
+
+          jq -r '.[].number' sprint-issues.json | while read ISS; do
+            echo "Adding issue #$ISS to project $PROJECT_NUMBER..."
+            gh project item-add "$PROJECT_NUMBER" \
+              --owner "$OWNER" \
+              --url "https://github.com/$REPO/issues/$ISS" || true
+          done
+
+      # --------------------------------------------------------------
+      # 3. Write supervisor telemetry snapshot (to gh-pages)
+      # --------------------------------------------------------------
+      - name: Write Activity Engine Telemetry Snapshot
+        run: |
+          mkdir -p supervisor-telemetry
+
+          TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          PRS_OPEN="${{ steps.prscan.outputs.count }}"
+          ISSUES_OPEN="${{ steps.issuescan.outputs.count }}"
+          STALE="${{ steps.stalescan.outputs.count }}"
+          BLOCKED="${{ steps.blockerscan.outputs.count }}"
+
+          # Sprint issue count from sprint-issues.json if it exists
+          if [ -f sprint-issues.json ]; then
+            SPRINT_COUNT=$(jq -r 'length' sprint-issues.json)
+          else
+            SPRINT_COUNT=0
+          fi
+
+          printf '{\n' > supervisor-telemetry/latest.json
+          printf '  "timestamp": "%s",\n' "$TS" >> supervisor-telemetry/latest.json
+          printf '  "status": "ok",\n' >> supervisor-telemetry/latest.json
+          printf '  "source": "activity-engine-v2",\n' >> supervisor-telemetry/latest.json
+          printf '  "pr_open": %s,\n' "$PRS_OPEN" >> supervisor-telemetry/latest.json
+          printf '  "issues_open": %s,\n' "$ISSUES_OPEN" >> supervisor-telemetry/latest.json
+          printf '  "pr_stale": %s,\n' "$STALE" >> supervisor-telemetry/latest.json
+          printf '  "issues_blocked": %s,\n' "$BLOCKED" >> supervisor-telemetry/latest.json
+          printf '  "sprint_issues": %s\n' "$SPRINT_COUNT" >> supervisor-telemetry/latest.json
+          printf '}\n' >> supervisor-telemetry/latest.json
+
+      - name: Commit telemetry (with safe rebase)
+        run: |
+          git add supervisor-telemetry/latest.json
+
+          git commit -m "Supervisor Activity Engine telemetry [skip ci]" || echo "No changes to commit."
+
+          # Keep in sync with remote gh-pages to avoid conflicts
+          git pull --rebase origin gh-pages || git rebase --abort
+          git push origin gh-pages || echo "Push skipped or failed; will be retried next run."
+
+      # --------------------------------------------------------------
+      # 4. Trigger telemetry merge workflow
+      # --------------------------------------------------------------
+      - name: Trigger Codex Telemetry Merge
+        run: |
+          gh workflow run codex-telemetry-merge.yml
+          echo "Triggered Codex Telemetry Merge workflow."
