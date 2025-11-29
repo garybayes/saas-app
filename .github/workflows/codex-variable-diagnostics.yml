@@ -1,0 +1,46 @@
+---
+# yamllint disable rule:truthy
+name: Codex Variable Diagnostics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  repository-projects: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+
+    steps:
+      - name: Print variable values
+        run: |
+          echo "CODEX_PROJECT_URL = ${{ vars.CODEX_PROJECT_URL }}"
+          echo "CODEX_ACTIVE_SPRINT = ${{ vars.CODEX_ACTIVE_SPRINT }}"
+          echo "CODEX_STALE_WINDOW_HOURS = ${{ vars.CODEX_STALE_WINDOW_HOURS }}"
+          echo "CODEX_STALE_WARNING_HOURS = ${{ vars.CODEX_STALE_WARNING_HOURS }}"
+
+      - name: Validate GH_TOKEN is usable
+        run: |
+          echo "Testing GitHub authentication..."
+          gh auth status
+
+      - name: Extract project number from URL
+        id: parse
+        run: |
+          URL="${{ vars.CODEX_PROJECT_URL }}"
+          NUM=$(echo "$URL" | grep -oE '[0-9]+$')
+          echo "project_number=$NUM" >> $GITHUB_OUTPUT
+          echo "Detected Project Number: $NUM"
+
+      - name: Try reading project via gh CLI
+        run: |
+          NUM="${{ steps.parse.outputs.project_number }}"
+          echo "Attempting: gh project view $NUM --owner ${{ github.repository_owner }}"
+          gh project view "$NUM" --owner "${{ github.repository_owner }}"
