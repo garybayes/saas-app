@@ -1,30 +1,24 @@
 ---
 # yamllint disable rule:truthy
-name: Auto-Assign Codex
+name: Sync Issues to Project
 
 on:
   issues:
     types: [opened]
 
 permissions:
-  contents: read
   issues: write
   repository-projects: write
 
 jobs:
-  assign:
+  sync:
     runs-on: ubuntu-latest
-
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # REQUIRED for gh CLI
+      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
     steps:
       - name: Add issue to project
         uses: actions/add-to-project@v0.6.0
         with:
           project-url: https://github.com/users/garybayes/projects/1
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Add Codex label
-        run: |
-          gh issue edit "$ISSUE_NUMBER" --add-label "codex"
+          github-token: ${{ secrets.GH_CI_PAT }}

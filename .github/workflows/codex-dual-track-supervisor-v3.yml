@@ -4,89 +4,61 @@ name: Codex Dual-Track Supervisor v3
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # Every 15 minutes
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
-  issues: read
+  issues: write
 
 jobs:
   supervisor:
     runs-on: ubuntu-latest
-
     env:
       GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+      REPO: ${{ github.repository }}
 
     steps:
-      # ----------------------------------------------------------
-      # 1. Checkout gh-pages (Supervisor *only* touches gh-pages)
-      # ----------------------------------------------------------
-      - name: Checkout gh-pages branch
+      - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           fetch-depth: 1
 
-      - name: Configure git identity
+      - name: Configure Git identity
         run: |
           git config --global user.name "codex-ci-bot"
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
       # ----------------------------------------------------------
-      # 2. Select next "Codex" issue (label-based)
-      #
-      # No GraphQL. Safe CLI lookup.
+      # 1. Supervisor Telemetry Snapshot
       # ----------------------------------------------------------
-      - name: Select next Codex issue
-        id: pick
-        run: |
-          NEXT=$(gh issue list \
-            --repo "$GITHUB_REPOSITORY" \
-            --label "codex" \
-            --state open \
-            --limit 1 \
-            --json number \
-            --jq '.[0].number')
-
-          if [ -z "$NEXT" ] || [ "$NEXT" = "null" ]; then
-            echo "No open Codex issues found."
-            echo "issue=" >> "$GITHUB_OUTPUT"
-          else
-            echo "Selected issue #$NEXT"
-            echo "issue=$NEXT" >> "$GITHUB_OUTPUT"
-          fi
-
-      # ----------------------------------------------------------
-      # 3. Write supervisor telemetry to gh-pages
-      # ----------------------------------------------------------
-      - name: Write supervisor telemetry
+      - name: Generate supervisor telemetry snapshot
         run: |
           mkdir -p supervisor-telemetry
 
           TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          ISSUE="${{ steps.pick.outputs.issue }}"
 
           printf '{\n' > supervisor-telemetry/latest.json
           printf '  "timestamp": "%s",\n' "$TS" >> supervisor-telemetry/latest.json
           printf '  "status": "ok",\n' >> supervisor-telemetry/latest.json
-          printf '  "issue": %s,\n' "${ISSUE:-null}" >> supervisor-telemetry/latest.json
           printf '  "source": "supervisor-v3"\n' >> supervisor-telemetry/latest.json
           printf '}\n' >> supervisor-telemetry/latest.json
 
       # ----------------------------------------------------------
-      # 4. Commit telemetry to gh-pages
+      # 2. Commit telemetry to gh-pages (safe, no fast-forward failures)
       # ----------------------------------------------------------
-      - name: Commit supervisor telemetry to gh-pages
+      - name: Commit supervisor telemetry
         run: |
           git add supervisor-telemetry/latest.json
           git commit -m "Supervisor telemetry update [skip ci]" || echo "No changes."
-          git push origin gh-pages || echo "Push skipped."
+
+          git pull --rebase origin gh-pages || git rebase --abort
+          git push origin gh-pages
 
       # ----------------------------------------------------------
-      # 5. Trigger telemetry merge workflow (idempotent)
+      # 3. Trigger telemetry merge workflow
       # ----------------------------------------------------------
-      - name: Trigger Telemetry Merge Workflow
+      - name: Trigger telemetry merge
         run: |
-          gh workflow run codex-telemetry-merge.yml --repo "$GITHUB_REPOSITORY"
-          echo "Triggered telemetry merge workflow."
+          gh workflow run codex-telemetry-merge.yml

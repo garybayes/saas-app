@@ -1,6 +1,6 @@
 ---
 # yamllint disable rule:truthy
-name: Sync Issues to Project
+name: Auto-Assign Codex to New Issues
 
 on:
   issues:
@@ -9,14 +9,16 @@ on:
 permissions:
   contents: read
   issues: write
-  repository-projects: write
+  project: write
 
 jobs:
-  add_to_project:
+  add:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
     steps:
-      - name: Add issue to project
+      - name: Assign to Example Project
         uses: actions/add-to-project@v0.6.0
         with:
           project-url: https://github.com/users/garybayes/projects/1
