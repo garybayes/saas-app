@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   workflow_run:
     workflows:
-      - "Codex Dual-Track Supervisor v2"
+      - "Codex Dual-Track Supervisor v3"
       - "Codex Self-Test v4"
     types:
       - completed
@@ -19,17 +19,27 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ----------------------------------------------------------
+      # Checkout gh-pages (telemetry lives ONLY on this branch)
+      # ----------------------------------------------------------
       - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
+          fetch-depth: 1
 
+      # ----------------------------------------------------------
+      # Install Node (not required for merging, but kept for future)
+      # ----------------------------------------------------------
       - name: Install Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Merge telemetry into codex-data.json
+      # ----------------------------------------------------------
+      # Merge telemetry from supervisor & self-test
+      # ----------------------------------------------------------
+      - name: Merge telemetry
         run: |
           mkdir -p supervisor-telemetry codex-selftest
 
@@ -54,16 +64,18 @@ jobs:
           printf '  "selftest": %s\n' "$SELF" >> "$OUT_FILE"
           printf '}\n' >> "$OUT_FILE"
 
-      - name: Commit and push merged telemetry
+      # ----------------------------------------------------------
+      # Commit safely (auto-rebase avoids all conflicts)
+      # ----------------------------------------------------------
+      - name: Commit and safely push
         run: |
           git config --global user.name "codex-ci-bot"
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
           git add codex-data.json
-
           git commit -m "Merged telemetry update [skip ci]" || echo "No changes."
 
-          # SAFELY SYNCHRONIZE WITH UPSTREAM
-          git pull --rebase origin gh-pages || true
+          # SAFETY FIX: Always rebase from remote before pushing
+          git pull --rebase origin gh-pages || git rebase --abort
 
           git push origin gh-pages
