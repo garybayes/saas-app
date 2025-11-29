@@ -1,20 +1,30 @@
 ---
-name: Auto-Assign Codex to New Issues
+# yamllint disable rule:truthy
+name: Auto-Assign Codex
 
 on:
   issues:
     types: [opened]
 
 permissions:
+  contents: read
   issues: write
+  project: write
 
 jobs:
   assign:
     runs-on: ubuntu-latest
 
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # REQUIRED for gh CLI
+
     steps:
-      - name: Assign Codex AI Bot
+      - name: Add issue to project
+        uses: actions/add-to-project@v0.6.0
+        with:
+          project-url: https://github.com/users/garybayes/projects/1
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add Codex label
         run: |
-          gh issue edit ${{ github.event.issue.number }} \
-            --add-assignee "garybayes" \
-            --repo garybayes/saas-app
+          gh issue edit "$ISSUE_NUMBER" --add-label "codex"

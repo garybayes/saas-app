@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { encrypt } from "../src/lib/crypto.ts";
+import { webcrypto } from "crypto";   // correct import for Node WebCrypto
 
 const crypto = webcrypto;
 const prisma = new PrismaClient();
@@ -22,7 +22,8 @@ async function getCryptoKey() {
   );
 }
 
-async function encrypt(plaintext: string): Promise<string> {
+// Local AES-GCM encrypt function (keep this, remove import)
+async function encryptValue(plaintext: string): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await getCryptoKey();
 
@@ -63,12 +64,12 @@ async function main() {
       {
         userId: user.id,
         appName: "Slack",
-        apiKey: await encrypt("slack-test-key")
+        apiKey: await encryptValue("slack-test-key"),
       },
       {
         userId: user.id,
         appName: "Notion",
-        apiKey: await encrypt("notion-test-key")
+        apiKey: await encryptValue("notion-test-key"),
       }
     ],
     skipDuplicates: true,
