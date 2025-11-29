@@ -22,7 +22,7 @@ jobs:
       REPO: ${{ github.repository }}
       OWNER: ${{ github.repository_owner }}
       PROJECT_NUMBER: 1
-      ACTIVE_SPRINT: "Sprint 5 Board"
+      ACTIVE_SPRINT: "Sprint 5 Completion"
 
     steps:
       - name: Checkout gh-pages
