@@ -1,9 +1,14 @@
 {
-  "updated_at": "2025-11-29T21:53:10Z",
+  "updated_at": "2025-11-29T22:22:27Z",
   "supervisor": {
-  "timestamp": "2025-11-29T21:52:59Z",
+  "timestamp": "2025-11-29T22:22:18Z",
   "status": "ok",
-  "source": "supervisor-v3"
+  "source": "activity-engine-v2.1",
+  "pr_open": 0,
+  "issues_open": 30,
+  "pr_stale": 0,
+  "issues_blocked": 0,
+  "sprint_issues": 0
 },
   "selftest": {
   "timestamp": "2025-11-29T18:24:35Z",
