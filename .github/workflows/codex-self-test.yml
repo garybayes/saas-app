@@ -9,7 +9,6 @@ permissions:
   contents: write
   issues: write
   repository-projects: write
-  projects: write
 
 jobs:
   selftest:
