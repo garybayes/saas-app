@@ -58,7 +58,7 @@ jobs:
           echo "issue_url=$ISSUE_URL" >> "$GITHUB_OUTPUT"
 
       # ---------------------------------------------------------
-      # 3. Add issue to Project V2 (2025 GitHub CLI syntax)
+      # 3. Add issue to Project V2 (correct GH CLI syntax)
       # ---------------------------------------------------------
       - name: Add issue to Codex project
         run: |
@@ -66,10 +66,9 @@ jobs:
 
           ISSUE_URL=${{ steps.create_issue.outputs.issue_url }}
 
-          gh project item-add \
+          gh project item-add "$CODEX_PROJECT_NUMBER" \
             --url "$ISSUE_URL" \
-            --owner "garybayes" \
-            --project-number "$CODEX_PROJECT_NUMBER"
+            --owner "garybayes"
 
       # ---------------------------------------------------------
       # 4. Close issue
