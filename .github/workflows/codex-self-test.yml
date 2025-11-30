@@ -32,7 +32,7 @@ jobs:
           fetch-depth: 0
 
       # ---------------------------------------------------------
-      # 2. Create a self-test issue (correct JSON-safe method)
+      # 2. Create self-test issue (robust GH CLI compatible)
       # ---------------------------------------------------------
       - name: Create self-test issue
         id: create_issue
@@ -47,16 +47,17 @@ jobs:
             --body "$BODY" \
             --repo "${{ github.repository }}"
 
-          # Get issue number via JSON output (supported on GH CLI 2.83)
-          ISSUE_NUMBER=$(gh issue list \
-            --state open \
-            --search "$TITLE" \
-            --limit 1 \
-            --json number \
-            | jq -r '.[0].number')
+          # Get all open issues as JSON
+          ISSUE_JSON=$(gh issue list --state open --json number,title)
+
+          # Extract the issue number by matching the exact title text
+          ISSUE_NUMBER=$(echo "$ISSUE_JSON" \
+            | jq -r --arg TITLE "$TITLE" '.[] | select(.title == $TITLE) | .number')
 
           if [[ -z "$ISSUE_NUMBER" || "$ISSUE_NUMBER" == "null" ]]; then
             echo "::error::Failed to retrieve issue number"
+            echo "DEBUG: Full JSON from GitHub CLI:"
+            echo "$ISSUE_JSON"
             exit 1
           fi
 
