@@ -45,15 +45,12 @@ jobs:
         run: |
           set -e
 
-          ls -ld $PWD/*
-          ls -ld repo-main
-
           echo "Clearing old dashboard…"
-          rm -rfv repo-pages/dashboard
-          mkdir -pv repo-pages/dashboard
-          echo "repo-main=" $repo-main
+          rm -rf repo-pages/dashboard
+          mkdir -p repo-pages/dashboard
+
           echo "Copying updated dashboard from main → gh-pages…"
-          cp -Rv repo-main/codex/dashboard/* repo-pages/dashboard
+          cp -R repo-main/codex/dashboard/* repo-pages/dashboard
 
       # ----------------------------------------------------
       # 4. Commit + push only if changed
