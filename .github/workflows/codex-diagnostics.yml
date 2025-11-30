@@ -24,12 +24,10 @@ jobs:
           fetch-depth: 0
 
       # ---------------------------------------------------------
-      # 2. Install GitHub CLI
+      # 2. Install GitHub CLI (correct official action)
       # ---------------------------------------------------------
       - name: Install GitHub CLI
-        uses: cli/cli@v2
-        with:
-          version: latest
+        uses: actions/setup-gh@v3
 
       # ---------------------------------------------------------
       # 3. Verify required repository variables
