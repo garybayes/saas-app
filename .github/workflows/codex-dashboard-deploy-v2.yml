@@ -1,3 +1,4 @@
+---
 # yamllint disable rule:truthy
 name: Codex Deploy Dashboard v2.4
 
@@ -43,11 +44,11 @@ jobs:
       - name: Sync dashboard into gh-pages
         run: |
           set -e
-
+          echo repo-pages
           echo "Clearing old dashboard…"
           rm -rfv repo-pages/dashboard
           mkdir -pv repo-pages/dashboard
-
+          echo repo-main
           echo "Copying updated dashboard from main → gh-pages…"
           cp -Rv repo-main/codex/dashboard/* repo-pages/dashboard/
 
