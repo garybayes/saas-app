@@ -59,7 +59,7 @@ jobs:
         run: |
           set -e
           cd repo-pages
-
+          pwd
           git config --global user.name  "codex-ci-bot"
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
@@ -72,3 +72,5 @@ jobs:
           else
             echo "No changes detected — nothing to deploy."
           fi
+          cd repo-main
+          pwd
