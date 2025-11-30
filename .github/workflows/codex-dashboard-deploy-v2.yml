@@ -1,14 +1,13 @@
----
 # yamllint disable rule:truthy
-name: Codex Deploy Dashboard v2.3
+name: Codex – Deploy Dashboard
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - main
     paths:
-      - "codex/dashboard/**"
+      - "codex/dashboard/**"    # Only redeploy when dashboard files change
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -18,30 +17,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      ############################################################
-      # 1. Checkout MAIN (source for dashboard)
-      ############################################################
-      - name: Checkout main branch
+      # ----------------------------------------------------
+      # 1. Checkout MAIN branch → repo-main/
+      # ----------------------------------------------------
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
           ref: main
           path: repo-main
           fetch-depth: 1
 
-      ############################################################
-      # 2. Checkout GH-PAGES (destination)
-      ############################################################
-      - name: Checkout gh-pages branch
+      # ----------------------------------------------------
+      # 2. Checkout GH-PAGES branch → repo-pages/
+      # ----------------------------------------------------
+      - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           path: repo-pages
           fetch-depth: 1
 
-      ############################################################
-      # 3. Deploy dashboard from main → gh-pages
-      ############################################################
-      - name: Copy dashboard files
+      # ----------------------------------------------------
+      # 3. Copy new dashboard files
+      # ----------------------------------------------------
+      - name: Sync dashboard into gh-pages
         run: |
           set -e
 
@@ -49,13 +48,13 @@ jobs:
           rm -rf repo-pages/dashboard
           mkdir -p repo-pages/dashboard
 
-          echo "Copying dashboard from main → gh-pages…"
+          echo "Copying updated dashboard from main → gh-pages…"
           cp -R repo-main/codex/dashboard/* repo-pages/dashboard/
 
-      ############################################################
-      # 4. Commit & Push
-      ############################################################
-      - name: Commit and push
+      # ----------------------------------------------------
+      # 4. Commit + push only if changed
+      # ----------------------------------------------------
+      - name: Commit and push dashboard
         run: |
           set -e
           cd repo-pages
@@ -66,8 +65,9 @@ jobs:
           git add dashboard/
 
           if ! git diff --cached --quiet; then
-            git commit -m "Deploy Codex Dashboard v2.3 [skip ci]"
+            echo "Changes detected → committing update."
+            git commit -m "Deploy Codex Dashboard v2.4 [skip ci]"
             git push origin gh-pages
           else
-            echo "No changes detected."
+            echo "No changes detected — nothing to deploy."
           fi
