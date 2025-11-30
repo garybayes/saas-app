@@ -1,5 +1,5 @@
 # yamllint disable rule:truthy
-name: Codex – Deploy Dashboard
+name: Codex Deploy Dashboard v2.4
 
 on:
   push:
@@ -45,11 +45,11 @@ jobs:
           set -e
 
           echo "Clearing old dashboard…"
-          rm -rf repo-pages/dashboard
-          mkdir -p repo-pages/dashboard
+          rm -rfv repo-pages/dashboard
+          mkdir -pv repo-pages/dashboard
 
           echo "Copying updated dashboard from main → gh-pages…"
-          cp -R repo-main/codex/dashboard/* repo-pages/dashboard/
+          cp -Rv repo-main/codex/dashboard/* repo-pages/dashboard/
 
       # ----------------------------------------------------
       # 4. Commit + push only if changed
