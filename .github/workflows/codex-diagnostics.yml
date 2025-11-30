@@ -1,26 +1,28 @@
 ---
 # yamllint disable rule:truthy
-name: Codex Diagnostics
+name: Codex – Diagnostics
 
 on:
   workflow_dispatch:
 
 permissions:
   contents: read
-  issues: read
-  repository-projects: read
 
 jobs:
-  diagnostics:
+  diag:
     runs-on: ubuntu-latest
+
     env:
       GH_TOKEN: ${{ secrets.GH_CI_PAT }}
       REPO: ${{ github.repository }}
+
       CODEX_PROJECT_URL: ${{ vars.CODEX_PROJECT_URL }}
       CODEX_PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
       CODEX_PROJECT_NUMBER: ${{ vars.CODEX_PROJECT_NUMBER }}
+
       CODEX_MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
       CODEX_DASHBOARD_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
+
       CODEX_MAIN_STALE_DAYS: ${{ vars.CODEX_MAIN_STALE_DAYS }}
       CODEX_MAIN_ESCALATE_DAYS: ${{ vars.CODEX_MAIN_ESCALATE_DAYS }}
       CODEX_DASHBOARD_STALE_DAYS: ${{ vars.CODEX_DASHBOARD_STALE_DAYS }}
@@ -29,37 +31,26 @@ jobs:
       CODEX_ACTIVITY_ESCALATE_DAYS: ${{ vars.CODEX_ACTIVITY_ESCALATE_DAYS }}
 
     steps:
-      - name: Echo Codex variables
+      - name: Print variables
         run: |
-          echo "REPO                     = $REPO"
-          echo "CODEX_PROJECT_URL        = $CODEX_PROJECT_URL"
-          echo "CODEX_PROJECT_ID         = $CODEX_PROJECT_ID"
-          echo "CODEX_PROJECT_NUMBER     = $CODEX_PROJECT_NUMBER"
-          echo "CODEX_MAIN_MILESTONE     = $CODEX_MAIN_MILESTONE"
-          echo "CODEX_DASHBOARD_MILESTONE= $CODEX_DASHBOARD_MILESTONE"
-          echo "CODEX_MAIN_STALE_DAYS    = $CODEX_MAIN_STALE_DAYS"
-          echo "CODEX_MAIN_ESCALATE_DAYS = $CODEX_MAIN_ESCALATE_DAYS"
-          echo "CODEX_DASHBOARD_STALE_DAYS    = $CODEX_DASHBOARD_STALE_DAYS"
-          echo "CODEX_DASHBOARD_ESCALATE_DAYS = $CODEX_DASHBOARD_ESCALATE_DAYS"
-          echo "CODEX_ACTIVITY_STALE_DAYS     = $CODEX_ACTIVITY_STALE_DAYS"
-          echo "CODEX_ACTIVITY_ESCALATE_DAYS  = $CODEX_ACTIVITY_ESCALATE_DAYS"
+          echo "Project URL: $CODEX_PROJECT_URL"
+          echo "Project ID:  $CODEX_PROJECT_ID"
+          echo "Project #:   $CODEX_PROJECT_NUMBER"
+          echo "Main:        $CODEX_MAIN_MILESTONE"
+          echo "Dash:        $CODEX_DASHBOARD_MILESTONE"
 
       - name: Test GitHub authentication
         run: |
-          echo "Testing GitHub authentication..."
           gh auth status
 
-      - name: Validate project access
+      - name: Validate Project URL
         run: |
-          set -e
-          if [ -n "$CODEX_PROJECT_URL" ]; then
-            echo "Viewing project: $CODEX_PROJECT_URL"
-            gh project view "$CODEX_PROJECT_NUMBER" --owner "${REPO%/*}" || true
-          else
-            echo "CODEX_PROJECT_URL not set."
-          fi
+          URL="$CODEX_PROJECT_URL"
+          NUM=$(echo "$URL" | grep -oE '[0-9]+$')
+          echo "Detected project number: $NUM"
+          gh project view "$NUM" --owner "${GITHUB_REPOSITORY_OWNER}"
 
-      - name: Validate gh-pages access
+      - name: Check gh-pages exists
         run: |
           set -e
           git clone --depth 1 "https://github.com/$REPO" repo

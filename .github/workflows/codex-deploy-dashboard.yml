@@ -1,6 +1,6 @@
 ---
 # yamllint disable rule:truthy
-name: Codex Deploy Dashboard
+name: Codex – Deploy Dashboard
 
 on:
   workflow_dispatch:
@@ -18,33 +18,43 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout main (dashboard source)
+      # -------------------------------------------------------------
+      # 1. Checkout main → repo-main
+      # -------------------------------------------------------------
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
           ref: main
           path: repo-main
           fetch-depth: 1
 
-      - name: Checkout gh-pages (deployment target)
+      # -------------------------------------------------------------
+      # 2. Checkout gh-pages → repo-pages
+      # -------------------------------------------------------------
+      - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           path: repo-pages
           fetch-depth: 1
 
-      - name: Copy dashboard files from main to gh-pages
+      # -------------------------------------------------------------
+      # 3. Replace dashboard folder completely
+      # -------------------------------------------------------------
+      - name: Replace dashboard
         run: |
           set -e
-          echo "Clearing old dashboard…"
+
           rm -rf repo-pages/dashboard
           mkdir -p repo-pages/dashboard
 
-          echo "Copying dashboard from main → gh-pages…"
           cp -R repo-main/codex/dashboard/* repo-pages/dashboard/
 
-      - name: Commit & push dashboard changes
+      # -------------------------------------------------------------
+      # 4. Commit & push ONLY if changed
+      # -------------------------------------------------------------
+      - name: Commit dashboard changes
         run: |
-          set -e
           cd repo-pages
 
           git config --global user.name  "codex-ci-bot"
@@ -57,13 +67,14 @@ jobs:
             exit 0
           fi
 
-          git commit -m "Deploy Codex Dashboard v2.x [skip ci]" || exit 0
+          git commit -m "Deploy Codex Dashboard v2.x [skip ci]"
 
           for i in 1 2 3; do
             if git push origin gh-pages; then
               echo "Dashboard deploy push succeeded."
               break
             fi
-            echo "Dashboard deploy push failed – retrying..."
+
+            echo "Dashboard deploy failed — retrying…"
             git pull --rebase origin gh-pages || git rebase --abort
           done

@@ -1,32 +1,64 @@
 ---
 # yamllint disable rule:truthy
-name: Codex Auto-Assign Issues
+name: Codex – Auto Assign & Label
 
 on:
   issues:
     types: [opened]
 
 permissions:
-  contents: read
   issues: write
+  repository-projects: write
+  contents: read
 
 jobs:
-  assign:
+  autoassign:
     runs-on: ubuntu-latest
+
     env:
-      GH_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
       REPO: ${{ github.repository }}
+      PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
 
     steps:
-      - name: Auto-label and assign Codex
+      - name: Start Auto-Assign
         run: |
-          set -e
-          NUM="${{ github.event.issue.number }}"
+          echo "Codex Auto-Assign running…"
+          gh --version
 
-          gh issue edit "$NUM" \
+      # -------------------------------------------------------------
+      # 1. Add labels
+      # -------------------------------------------------------------
+      - name: Label issue
+        run: |
+          gh issue edit "${{ github.event.issue.number }}" \
             --add-label "codex" \
             --add-label "triage"
 
-          # Assign to repo owner by default
-          OWNER="${REPO%/*}"
-          gh issue edit "$NUM" --add-assignee "$OWNER" || true
+      # -------------------------------------------------------------
+      # 2. Add to project
+      # -------------------------------------------------------------
+      - name: Add issue to project
+        run: |
+          NUM="${{ github.event.issue.number }}"
+
+          NODE=$(gh api graphql -f query='
+            query($owner:String!, $repo:String!, $num:Int!) {
+              repository(owner:$owner, name:$repo) {
+                issue(number:$num) { id }
+              }
+            }' \
+            -F owner="${GITHUB_REPOSITORY_OWNER}" \
+            -F repo="${GITHUB_REPOSITORY#*/}" \
+            -F num="$NUM")
+
+          ID=$(echo "$NODE" | grep -oE '"id":"[^"]+"' | sed 's/"id":"\(.*\)"/\1/')
+
+          gh api graphql -f query='
+            mutation($project:ID!, $item:ID!) {
+              addProjectV2ItemById(input:{projectId:$project, contentId:$item}) {
+                item { id }
+              }
+            }' \
+            -F project="$PROJECT_ID" \
+            -F item="$ID"

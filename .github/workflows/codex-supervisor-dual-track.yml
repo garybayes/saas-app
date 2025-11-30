@@ -1,10 +1,10 @@
 ---
 # yamllint disable rule:truthy
-name: Codex Supervisor – Dual Track
+name: Codex – Dual-Track Supervisor
 
 on:
   schedule:
-    - cron: "*/30 * * * *" # every 30 minutes
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -13,196 +13,105 @@ permissions:
   repository-projects: write
 
 jobs:
-  dual-track-supervisor:
+  supervisor:
     runs-on: ubuntu-latest
+
     env:
       GH_TOKEN: ${{ secrets.GH_CI_PAT }}
       REPO: ${{ github.repository }}
       PROJECT_URL: ${{ vars.CODEX_PROJECT_URL }}
+      PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
       MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
       DASH_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
-      MAIN_STALE_DAYS_VAR: ${{ vars.CODEX_MAIN_STALE_DAYS }}
-      MAIN_ESCALATE_DAYS_VAR: ${{ vars.CODEX_MAIN_ESCALATE_DAYS }}
-      DASH_STALE_DAYS_VAR: ${{ vars.CODEX_DASHBOARD_STALE_DAYS }}
-      DASH_ESCALATE_DAYS_VAR: ${{ vars.CODEX_DASHBOARD_ESCALATE_DAYS }}
-      FALLBACK_STALE_DAYS: ${{ vars.CODEX_ACTIVITY_STALE_DAYS }}
-      FALLBACK_ESCALATE_DAYS: ${{ vars.CODEX_ACTIVITY_ESCALATE_DAYS }}
+      MAIN_STALE: ${{ vars.CODEX_MAIN_STALE_DAYS }}
+      MAIN_ESC: ${{ vars.CODEX_MAIN_ESCALATE_DAYS }}
+      DASH_STALE: ${{ vars.CODEX_DASHBOARD_STALE_DAYS }}
+      DASH_ESC: ${{ vars.CODEX_DASHBOARD_ESCALATE_DAYS }}
 
     steps:
-      - name: Checkout gh-pages (for telemetry)
-        uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-          fetch-depth: 1
-
-      - name: Configure git identity
+      - name: Start Supervisor
         run: |
-          git config --global user.name "codex-ci-bot"
-          git config --global user.email "codex-ci-bot@users.noreply.github.com"
+          echo "Codex Dual-Track Supervisor starting…"
+          gh --version
 
-      - name: Resolve supervisor thresholds
-        id: thresholds
+      # -------------------------------------------------------------
+      # 1. Load all open issues
+      # -------------------------------------------------------------
+      - name: Fetch issues
+        id: fetch
         run: |
-          set -e
+          ISSUES=$(gh issue list --state open --json number,title,milestone,updatedAt,url)
+          echo "$ISSUES" > issues.json
 
-          main_stale="${MAIN_STALE_DAYS_VAR:-$FALLBACK_STALE_DAYS}"
-          main_esc="${MAIN_ESCALATE_DAYS_VAR:-$FALLBACK_ESCALATE_DAYS}"
-          dash_stale="${DASH_STALE_DAYS_VAR:-$FALLBACK_STALE_DAYS}"
-          dash_esc="${DASH_ESCALATE_DAYS_VAR:-$FALLBACK_ESCALATE_DAYS}"
+          MAIN_COUNT=$(echo "$ISSUES" | jq --arg M "$MAIN_MILESTONE" '[.[] | select(.milestone.title == $M)] | length')
+          DASH_COUNT=$(echo "$ISSUES" | jq --arg M "$DASH_MILESTONE" '[.[] | select(.milestone.title == $M)] | length')
 
-          : "${main_stale:=3}"
-          : "${main_esc:=5}"
-          : "${dash_stale:=3}"
-          : "${dash_esc:=5}"
+          echo "main_count=$MAIN_COUNT" >> $GITHUB_OUTPUT
+          echo "dash_count=$DASH_COUNT" >> $GITHUB_OUTPUT
 
-          echo "main_stale=$main_stale" >> "$GITHUB_OUTPUT"
-          echo "main_esc=$main_esc" >> "$GITHUB_OUTPUT"
-          echo "dash_stale=$dash_stale" >> "$GITHUB_OUTPUT"
-          echo "dash_esc=$dash_esc" >> "$GITHUB_OUTPUT"
-
-      - name: Fetch open issues
-        id: scan
+      # -------------------------------------------------------------
+      # 2. Process each track
+      # -------------------------------------------------------------
+      - name: Evaluate stale/escalation
         run: |
-          set -e
+          NOW=$(date -u +%s)
 
-          gh issue list \
-            --state open \
-            --json number,title,milestone,labels,updatedAt,url > issues.json
+          process_track () {
+            TRACK_NAME="$1"
+            MILESTONE="$2"
+            STALE="$3"
+            ESC="$4"
 
-          echo "Scanned issues:"
-          jq '. | length' issues.json
+            echo "Processing track: $TRACK_NAME (milestone: $MILESTONE)"
 
-      - name: Classify issues by track + freshness
-        id: classify
-        run: |
-          set -e
-          main_ms="$MAIN_MILESTONE"
-          dash_ms="$DASH_MILESTONE"
+            jq --arg M "$MILESTONE" '.[] | select(.milestone.title == $M)' issues.json |
+            while read -r ITEM; do
+              NUM=$(echo "$ITEM" | jq '.number')
+              UPDATED=$(echo "$ITEM" | jq -r '.updatedAt')
+              URL=$(echo "$ITEM" | jq -r '.url')
 
-          main_stale_days="${{ steps.thresholds.outputs.main_stale }}"
-          main_esc_days="${{ steps.thresholds.outputs.main_esc }}"
-          dash_stale_days="${{ steps.thresholds.outputs.dash_stale }}"
-          dash_esc_days="${{ steps.thresholds.outputs.dash_esc }}"
+              UPDATED_TS=$(date -u -d "$UPDATED" +%s)
+              AGE_DAYS=$(( (NOW - UPDATED_TS) / 86400 ))
 
-          sec_per_day=86400
-          now_epoch=$(date -u +%s)
+              echo "Issue #$NUM | Age: ${AGE_DAYS} days | $URL"
 
-          classify() {
-            local milestone="$1"
-            local stale_days="$2"
-            local esc_days="$3"
-            local prefix="$4"
+              if [ "$AGE_DAYS" -ge "$ESC" ]; then
+                echo "Escalating #$NUM"
+                gh issue comment "$NUM" --body "[Codex Supervisor] Issue has exceeded escalation threshold ($ESC days)."
+                gh issue edit "$NUM" --add-label "codex:escalated"
+              elif [ "$AGE_DAYS" -ge "$STALE" ]; then
+                echo "Marking stale #$NUM"
+                gh issue comment "$NUM" --body "[Codex Supervisor] Issue has become stale ($STALE days)."
+                gh issue edit "$NUM" --add-label "codex:stale"
+              fi
 
-            jq --arg M "$milestone" --argjson now "$now_epoch" \
-               --argjson stale_sec "$((stale_days*sec_per_day))" \
-               --argjson esc_sec "$((esc_days*sec_per_day))" '
-              [ .[]
-                | select(.milestone != null and .milestone.title == $M)
-                | . as $i
-                | ($now - (.updatedAt | fromdate)) as $age
-                | {
-                    number: $i.number,
-                    title: $i.title,
-                    url: $i.url,
-                    age_seconds: $age,
-                    state:
-                      (if   $age >= $esc_sec   then "escalate"
-                       elif $age >= $stale_sec then "stale"
-                       else "fresh" end)
-                  }
-              ]' issues.json > "${prefix}_classified.json"
-
-            jq '[ .[] | select(.state == "stale") ]'  "${prefix}_classified.json" > "${prefix}_stale.json"
-            jq '[ .[] | select(.state == "escalate") ]' "${prefix}_classified.json" > "${prefix}_escalate.json"
-
-            echo "${prefix}_total=$(jq 'length' "${prefix}_classified.json")" >> "$GITHUB_OUTPUT"
-            echo "${prefix}_stale_count=$(jq 'length' "${prefix}_stale.json")" >> "$GITHUB_OUTPUT"
-            echo "${prefix}_esc_count=$(jq 'length' "${prefix}_escalate.json")" >> "$GITHUB_OUTPUT"
+            done
           }
 
-          classify "$main_ms" "$main_stale_days" "$main_esc_days" "main"
-          classify "$dash_ms" "$dash_stale_days" "$dash_esc_days" "dash"
+          # Main development track
+          process_track "Main" "$MAIN_MILESTONE" "$MAIN_STALE" "$MAIN_ESC"
 
-      - name: Nudge stale main-track issues
-        if: steps.classify.outputs.main_stale_count != '0'
+          # Dashboard track
+          process_track "Dashboard" "$DASH_MILESTONE" "$DASH_STALE" "$DASH_ESC"
+
+      # -------------------------------------------------------------
+      # 3. Emit telemetry
+      # -------------------------------------------------------------
+      - name: Write telemetry
         run: |
-          set -e
-          jq -r '.[].number' main_stale.json | while read -r num; do
-            gh issue comment "$num" --body "⏰ **Codex Supervisor (Main):** This Sprint issue looks stale. Please review status or provide an update."
-          done
-
-      - name: Escalate main-track issues
-        if: steps.classify.outputs.main_esc_count != '0'
-        run: |
-          set -e
-          jq -r '.[].number' main_escalate.json | while read -r num; do
-            gh issue edit "$num" --add-label "codex-escalated"
-            gh issue comment "$num" --body "🚨 **Codex Supervisor (Main):** This issue has passed the escalation window. Please review and adjust priority."
-          done
-
-      - name: Nudge stale dashboard issues
-        if: steps.classify.outputs.dash_stale_count != '0'
-        run: |
-          set -e
-          jq -r '.[].number' dash_stale.json | while read -r num; do
-            gh issue comment "$num" --body "⏰ **Codex Supervisor (Dashboard):** This dashboard issue looks stale. Please review status or provide an update."
-          done
-
-      - name: Escalate dashboard issues
-        if: steps.classify.outputs.dash_esc_count != '0'
-        run: |
-          set -e
-          jq -r '.[].number' dash_escalate.json | while read -r num; do
-            gh issue edit "$num" --add-label "codex-escalated"
-            gh issue comment "$num" --body "🚨 **Codex Supervisor (Dashboard):** This issue has passed the escalation window. Please review and adjust priority."
-          done
-
-      - name: Write supervisor telemetry snapshot
-        run: |
-          set -e
-          mkdir -p supervisor-telemetry
-
+          mkdir -p codex-telemetry
           TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          printf '{\n' > supervisor-telemetry/latest.json
-          printf '  "timestamp": "%s",\n' "$TS" >> supervisor-telemetry/latest.json
-          printf '  "source": "dual-track-supervisor-v3.2",\n' >> supervisor-telemetry/latest.json
-          printf '  "main": {\n' >> supervisor-telemetry/latest.json
-          printf '    "milestone": "%s",\n' "$MAIN_MILESTONE" >> supervisor-telemetry/latest.json
-          printf '    "total": %s,\n' "${{ steps.classify.outputs.main_total || '0' }}" >> supervisor-telemetry/latest.json
-          printf '    "stale": %s,\n' "${{ steps.classify.outputs.main_stale_count || '0' }}" >> supervisor-telemetry/latest.json
-          printf '    "escalated": %s\n' "${{ steps.classify.outputs.main_esc_count || '0' }}" >> supervisor-telemetry/latest.json
-          printf '  },\n' >> supervisor-telemetry/latest.json
-          printf '  "dashboard": {\n' >> supervisor-telemetry/latest.json
-          printf '    "milestone": "%s",\n' "$DASH_MILESTONE" >> supervisor-telemetry/latest.json
-          printf '    "total": %s,\n' "${{ steps.classify.outputs.dash_total || '0' }}" >> supervisor-telemetry/latest.json
-          printf '    "stale": %s,\n' "${{ steps.classify.outputs.dash_stale_count || '0' }}" >> supervisor-telemetry/latest.json
-          printf '    "escalated": %s\n' "${{ steps.classify.outputs.dash_esc_count || '0' }}" >> supervisor-telemetry/latest.json
-          printf '  }\n' >> supervisor-telemetry/latest.json
-          printf '}\n' >> supervisor-telemetry/latest.json
+          printf '{\n'                                  >  codex-telemetry/supervisor.json
+          printf '  "timestamp": "%s",\n' "$TS"        >> codex-telemetry/supervisor.json
+          printf '  "main_count": %s,\n' "${{ steps.fetch.outputs.main_count }}" >> codex-telemetry/supervisor.json
+          printf '  "dash_count": %s,\n' "${{ steps.fetch.outputs.dash_count }}" >> codex-telemetry/supervisor.json
+          printf '  "source": "dual-track-supervisor"\n' >> codex-telemetry/supervisor.json
+          printf '}\n'                                 >> codex-telemetry/supervisor.json
 
-      - name: Commit supervisor telemetry
-        run: |
-          set -e
-          git add supervisor-telemetry/latest.json || true
-
-          if git diff --cached --quiet; then
-            echo "No telemetry changes to commit."
-            exit 0
-          fi
-
-          git commit -m "Codex Dual-Track Supervisor telemetry [skip ci]" || exit 0
-
-          for i in 1 2 3; do
-            if git push origin gh-pages; then
-              echo "Telemetry push succeeded."
-              break
-            fi
-            echo "Telemetry push failed – retrying..."
-            git pull --rebase origin gh-pages || git rebase --abort
-          done
-
+      # -------------------------------------------------------------
+      # 4. Trigger merge workflow
+      # -------------------------------------------------------------
       - name: Trigger telemetry merge
         run: |
-          gh workflow run codex-telemetry-merge.yml
-          echo "Triggered Codex Telemetry Merge."
+          gh workflow run codex-telemetry-merge.yml || true
