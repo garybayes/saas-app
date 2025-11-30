@@ -72,7 +72,6 @@ jobs:
       - name: Add issue to Codex project
         run: |
           ISSUE_URL=${{ steps.create_issue.outputs.issue_url }}
-
           ISSUE_NUMBER="${ISSUE_URL##*/}"
 
           echo "Retrieving issue node ID..."
@@ -88,17 +87,16 @@ jobs:
 
           echo "Issue node ID: $ISSUE_ID"
 
-          echo "Adding issue to project via projectV2ItemCreate..."
-
+          echo "Adding issue to project using addProjectV2Item..."
           gh api graphql -f query='
-            mutation($project: ID!, $item: ID!) {
-              projectV2ItemCreate(
-                input: {projectId: $project, contentId: $item}
+            mutation($project: ID!, $content: ID!) {
+              addProjectV2Item(
+                input: {projectId: $project, contentId: $content}
               ) {
                 item { id }
               }
             }
-          ' -f project="${{ vars.CODEX_PROJECT_ID }}" -f item="$ISSUE_ID"
+          ' -f project="${{ vars.CODEX_PROJECT_ID }}" -f content="$ISSUE_ID"
 
           echo "✔ Issue added to project successfully."
 
