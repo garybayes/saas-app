@@ -1,5 +1,5 @@
 {
-  "updated_at": "2025-11-30T04:01:54Z",
+  "updated_at": "2025-11-30T04:07:46Z",
   "supervisor": {
   "timestamp": "2025-11-30T03:53:41Z",
   "source": "activity-engine-v2",
@@ -7,8 +7,8 @@
   "stale_dashboard": 0
 },
   "selftest": {
-  "timestamp": "2025-11-30T03:32:46Z",
+  "timestamp": "2025-11-30T04:07:28Z",
   "source": "self-test-v4",
-  "issue": 96
+  "issue": 97
 }
 }
