@@ -1,14 +1,14 @@
 {
-  "updated_at": "2025-11-29T23:54:10Z",
+  "updated_at": "2025-11-30T01:40:10Z",
   "supervisor": {
   "timestamp": "2025-11-29T23:53:56Z",
   "status": "ok",
   "source": "supervisor-v3"
 },
   "selftest": {
-  "timestamp": "2025-11-29T18:24:35Z",
+  "timestamp": "2025-11-30T01:40:03Z",
   "status": "success",
-  "issue": 86,
+  "issue": 95,
   "source": "self-test-v4"
 }
 }
