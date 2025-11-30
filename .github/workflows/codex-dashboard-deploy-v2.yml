@@ -46,14 +46,13 @@ jobs:
           set -e
           echo "repo-pages=" $repo-pages
           echo $PWD
+          ls -ld repo-main
           echo "Clearing old dashboard…"
-          rm -rfv repo-pages/dashboard
-          mkdir -pv repo-pages/dashboard
+          rm -rfv repo-pages/gh-pages/dashboard
+          mkdir -pv repo-pages/gh-pages/dashboard
           echo "repo-main=" $repo-main
           echo "Copying updated dashboard from main → gh-pages…"
-          cp -Rv repo-main/codex/dashboard/* repo-pages/dashboard
-          cd repo-main
-          echo $PWD
+          cp -Rv repo-main/codex/dashboard/* repo-pages/gh-pages/dashboard
 
       # ----------------------------------------------------
       # 4. Commit + push only if changed
@@ -62,7 +61,7 @@ jobs:
         run: |
           set -e
           cd repo-pages
-          echo $PWD
+          ls -ld $PWD/*
           git config --global user.name  "codex-ci-bot"
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
