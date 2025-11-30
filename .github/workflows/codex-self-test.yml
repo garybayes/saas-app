@@ -67,11 +67,13 @@ jobs:
           echo "issue_url=$ISSUE_URL" >> "$GITHUB_OUTPUT"
 
       # ---------------------------------------------------------
-      # 3. Add issue to Project V2 (GraphQL method — required)
+      # 3. Add issue to Project V2 (2025 GitHub API)
       # ---------------------------------------------------------
-      - name: Add issue to Codex project (GraphQL)
+      - name: Add issue to Codex project
         run: |
           ISSUE_URL=${{ steps.create_issue.outputs.issue_url }}
+
+          ISSUE_NUMBER="${ISSUE_URL##*/}"
 
           echo "Retrieving issue node ID..."
           ISSUE_ID=$(gh api graphql -f query='
@@ -82,14 +84,15 @@ jobs:
                 }
               }
             }
-          ' -f owner="garybayes" -f repo="saas-app" -F number="${ISSUE_URL##*/}" --jq '.data.repository.issue.id')
+          ' -f owner="garybayes" -f repo="saas-app" -F number="$ISSUE_NUMBER" --jq '.data.repository.issue.id')
 
           echo "Issue node ID: $ISSUE_ID"
 
-          echo "Adding issue to project..."
+          echo "Adding issue to project via projectV2ItemCreate..."
+
           gh api graphql -f query='
             mutation($project: ID!, $item: ID!) {
-              projectV2AddItemById(
+              projectV2ItemCreate(
                 input: {projectId: $project, contentId: $item}
               ) {
                 item { id }
