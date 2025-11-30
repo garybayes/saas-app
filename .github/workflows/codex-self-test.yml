@@ -67,17 +67,37 @@ jobs:
           echo "issue_url=$ISSUE_URL" >> "$GITHUB_OUTPUT"
 
       # ---------------------------------------------------------
-      # 3. Add issue to Project V2 (correct CLI syntax)
+      # 3. Add issue to Project V2 (GraphQL method — required)
       # ---------------------------------------------------------
-      - name: Add issue to Codex project
+      - name: Add issue to Codex project (GraphQL)
         run: |
           ISSUE_URL=${{ steps.create_issue.outputs.issue_url }}
 
-          echo "Adding issue to project: $ISSUE_URL"
+          echo "Retrieving issue node ID..."
+          ISSUE_ID=$(gh api graphql -f query='
+            query($owner:String!, $repo:String!, $number:Int!) {
+              repository(owner:$owner, name:$repo) {
+                issue(number:$number) {
+                  id
+                }
+              }
+            }
+          ' -f owner="garybayes" -f repo="saas-app" -F number="${ISSUE_URL##*/}" --jq '.data.repository.issue.id')
 
-          gh project item-add "$CODEX_PROJECT_NUMBER" \
-            --url "$ISSUE_URL" \
-            --owner "garybayes"
+          echo "Issue node ID: $ISSUE_ID"
+
+          echo "Adding issue to project..."
+          gh api graphql -f query='
+            mutation($project: ID!, $item: ID!) {
+              projectV2AddItemById(
+                input: {projectId: $project, contentId: $item}
+              ) {
+                item { id }
+              }
+            }
+          ' -f project="${{ vars.CODEX_PROJECT_ID }}" -f item="$ISSUE_ID"
+
+          echo "✔ Issue added to project successfully."
 
       # ---------------------------------------------------------
       # 4. Close issue
