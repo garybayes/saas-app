@@ -1,79 +1,115 @@
----
 # yamllint disable rule:truthy
-name: Codex – Telemetry Merge
+---
+name: Codex Telemetry Merge
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "0 * * * *"  # Hourly merge to keep telemetry fresh
 
 permissions:
   contents: write
-  repository-projects: write
+  actions: read
 
 jobs:
   merge:
+    name: Merge Codex Telemetry
     runs-on: ubuntu-latest
 
-    env:
-      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-      REPO: ${{ github.repository }}
-
     steps:
+      # -----------------------------------------------------------
+      # 1. Checkout gh-pages as real branch (required for merging)
+      # -----------------------------------------------------------
       - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
-          fetch-depth: 1
+          fetch-depth: 0
 
-      # -------------------------------------------------------------
-      # Ensure folder exists
-      # -------------------------------------------------------------
-      - name: Prepare folders
+      # -----------------------------------------------------------
+      # 2. Install jq (used for JSON merge operations)
+      # -----------------------------------------------------------
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      # -----------------------------------------------------------
+      # 3. Validate required telemetry directories
+      # -----------------------------------------------------------
+      - name: Verify telemetry directories exist
         run: |
-          mkdir -p codex
-          mkdir -p codex-telemetry
-          touch codex/codex-data.json
+          REQUIRED_DIRS=(
+            "project-telemetry"
+            "activity-telemetry"
+          )
 
-      # -------------------------------------------------------------
-      # Merge all telemetry JSON files
-      # -------------------------------------------------------------
-      - name: Merge telemetry
-        run: |
-          echo "Merging telemetry…"
-
-          # Find all telemetry snapshots
-          FILES=$(find . -type f -path "./**/latest.json")
-
-          # Start fresh file
-          printf '{\n  "telemetry": [\n' > codex/codex-data.json
-
-          COUNT=0
-          for F in $FILES; do
-            CONTENT=$(cat "$F")
-            if [[ $COUNT -gt 0 ]]; then
-              printf ',\n' >> codex/codex-data.json
+          for DIR in "${REQUIRED_DIRS[@]}"; do
+            if [[ ! -d "$DIR" ]]; then
+              echo "::error::Missing telemetry directory: $DIR"
+              exit 1
             fi
-
-            printf '    %s' "$CONTENT" >> codex/codex-data.json
-            COUNT=$((COUNT+1))
+            echo "✔ Directory exists: $DIR"
           done
 
-          printf '\n  ]\n}\n' >> codex/codex-data.json
-
-      # -------------------------------------------------------------
-      # Commit merged data
-      # -------------------------------------------------------------
-      - name: Commit & Push
+      # -----------------------------------------------------------
+      # 4. Collect all telemetry JSON files into a temp list
+      # -----------------------------------------------------------
+      - name: Gather telemetry files
         run: |
-          git config --global user.name  "codex-ci-bot"
-          git config --global user.email "codex-ci-bot@users.noreply.github.com"
+          echo "Collecting telemetry files..."
 
-          git add codex/codex-data.json
+          mkdir merged || true
+          > merged/all.jsonlist
 
-          if ! git diff --cached --quiet; then
-            git commit -m "Codex Telemetry Merge [skip ci]"
-            git push origin gh-pages
-          else
-            echo "No telemetry changes."
+          find project-telemetry -name "*.json" -maxdepth 1 >> merged/all.jsonlist || true
+          find activity-telemetry -name "*.json" -maxdepth 1 >> merged/all.jsonlist || true
+
+          echo "Telemetry files:"
+          cat merged/all.jsonlist || true
+
+      # -----------------------------------------------------------
+      # 5. Merge all telemetry JSON into codex-data.json
+      # -----------------------------------------------------------
+      - name: Merge telemetry JSON
+        run: |
+          echo "Merging telemetry data..."
+
+          # Start with empty array
+          echo "[]" > codex-data.json
+
+          while IFS= read -r FILE; do
+            echo "Merging: $FILE"
+            jq -s '.[0] + .[1]' codex-data.json "$FILE" > codex-data.tmp
+            mv codex-data.tmp codex-data.json
+          done < merged/all.jsonlist
+
+          echo "Final codex-data.json:"
+          cat codex-data.json
+
+      # -----------------------------------------------------------
+      # 6. Commit merged telemetry
+      # -----------------------------------------------------------
+      - name: Commit and push merged telemetry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+
+          git add codex-data.json
+
+          if git diff --cached --quiet; then
+            echo "No telemetry changes to commit."
+            exit 0
           fi
+
+          git commit -m "[skip ci] Codex: merged telemetry update"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" gh-pages
+
+      # -----------------------------------------------------------
+      # 7. Summary
+      # -----------------------------------------------------------
+      - name: Summary
+        run: |
+          echo "-----------------------------------------"
+          echo "Codex Telemetry Merge Completed Successfully"
+          echo "-----------------------------------------"
