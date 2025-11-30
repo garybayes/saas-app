@@ -1,8 +1,16 @@
 {
-  "timestamp": "2025-11-30T17:21:43Z",
-  "source": "activity-engine-v3.2",
-  "pr_open": 0,
-  "issues_open": 30,
-  "pr_stale": 0,
-  "issues_blocked": 0
+  "timestamp": "2025-11-30T17:40:11Z",
+  "source": "dual-track-supervisor-v3.2",
+  "main": {
+    "milestone": "Sprint 4 Stabilization",
+    "total": 5,
+    "stale": 0,
+    "escalated": 0
+  },
+  "dashboard": {
+    "milestone": "Dashboard Validation",
+    "total": 3,
+    "stale": 0,
+    "escalated": 0
+  }
 }
