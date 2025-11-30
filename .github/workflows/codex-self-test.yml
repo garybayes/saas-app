@@ -52,18 +52,17 @@ jobs:
           echo "issue_url=$ISSUE_URL" >> "$GITHUB_OUTPUT"
 
       # ---------------------------------------------------------
-      # 3. Add issue to Project V2
+      # 3. Add issue to Project V2 (2025 GitHub CLI syntax)
       # ---------------------------------------------------------
       - name: Add issue to Codex project
         run: |
           echo "Adding issue to project: $CODEX_PROJECT_URL"
 
-          ISSUE_ID=$(echo "${{ steps.create_issue.outputs.issue_url }}" \
-            | xargs gh api \
-            --jq '.id' \
-            | tr -d '\n')
+          ISSUE_URL=${{ steps.create_issue.outputs.issue_url }}
 
-          gh project item-add "$CODEX_PROJECT_NUMBER" --id "$ISSUE_ID"
+          gh project item-add \
+            --url "$ISSUE_URL" \
+            --owner "garybayes"
 
       # ---------------------------------------------------------
       # 4. Close issue
