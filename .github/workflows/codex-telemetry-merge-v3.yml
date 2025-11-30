@@ -1,0 +1,55 @@
+---
+# yamllint disable rule:truthy
+name: Codex Telemetry Merge v3
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - "Codex Dual-Track Supervisor v3"
+      - "Codex Self-Test v4"
+      - "Codex Supervisor Activity Engine v2"
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Merge telemetry
+        run: |
+          mkdir -p supervisor-telemetry codex-selftest
+          SUP="{}"
+          SELF="{}"
+
+          [ -f supervisor-telemetry/latest.json ] && SUP=$(cat supervisor-telemetry/latest.json)
+          [ -f codex-selftest/latest.json ] && SELF=$(cat codex-selftest/latest.json)
+
+          TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          printf '{\n' > codex-data.json
+          printf '  "updated_at": "%s",\n' "$TS" >> codex-data.json
+          printf '  "supervisor": %s,\n' "$SUP" >> codex-data.json
+          printf '  "selftest": %s\n' "$SELF" >> codex-data.json
+          printf '}\n' >> codex-data.json
+
+      - name: Commit & push
+        run: |
+          git config --global user.name "codex-ci-bot"
+          git config --global user.email "codex-ci-bot@users.noreply.github.com"
+
+          git add codex-data.json
+          git commit -m "Merged telemetry [skip ci]" || echo "No changes."
+          git pull --rebase origin gh-pages || git rebase --abort
+          git push origin gh-pages || true

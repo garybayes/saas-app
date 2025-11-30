@@ -1,0 +1,40 @@
+---
+# yamllint disable rule:truthy
+name: Codex Dashboard Deploy v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - "codex/dashboard/**"
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare gh-pages
+        run: |
+          git fetch origin gh-pages
+          git switch gh-pages
+
+      - name: Copy dashboard files
+        run: |
+          rm -rf dashboard
+          mkdir -p dashboard
+          cp -R codex/dashboard/* dashboard/
+
+      - name: Commit & push
+        run: |
+          git config --global user.name "codex-ci-bot"
+          git config --global user.email "codex-ci-bot@users.noreply.github.com"
+
+          git add dashboard/
+          git commit -m "Deploy Codex Dashboard v2 [skip ci]" || echo "No changes."
+          git push origin gh-pages || true

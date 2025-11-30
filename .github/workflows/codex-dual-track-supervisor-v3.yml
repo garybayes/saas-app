@@ -10,55 +10,57 @@ on:
 permissions:
   contents: write
   issues: write
+  pull-requests: write
+  repository-projects: write
 
 jobs:
   supervisor:
     runs-on: ubuntu-latest
+
     env:
       GH_TOKEN: ${{ secrets.GH_CI_PAT }}
       REPO: ${{ github.repository }}
+      PROJECT_URL: ${{ vars.CODEX_PROJECT_URL }}
+      MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
+      DASH_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
+      MAIN_STALE: ${{ vars.CODEX_MAIN_STALE_DAYS }}
+      DASH_STALE: ${{ vars.CODEX_DASHBOARD_STALE_DAYS }}
+      MAIN_ESC: ${{ vars.CODEX_MAIN_ESCALATE_DAYS }}
+      DASH_ESC: ${{ vars.CODEX_DASHBOARD_ESCALATE_DAYS }}
 
     steps:
-      - name: Checkout gh-pages
-        uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-          fetch-depth: 1
-
-      - name: Configure Git identity
+      - name: Fetch supervisor status
         run: |
-          git config --global user.name "codex-ci-bot"
-          git config --global user.email "codex-ci-bot@users.noreply.github.com"
+          echo "Codex Dual-Track Supervisor starting…"
+          gh --version
 
-      # ----------------------------------------------------------
-      # 1. Supervisor Telemetry Snapshot
-      # ----------------------------------------------------------
-      - name: Generate supervisor telemetry snapshot
+      - name: Scan sprint issues
+        id: sprint_scan
         run: |
-          mkdir -p supervisor-telemetry
+          ISSUES=$(gh issue list --state open --json number,title,milestone,updatedAt,url)
+          echo "$ISSUES" > issues.json
 
-          TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          COUNT=$(echo "$ISSUES" | jq \
+            --arg M "$MAIN_MILESTONE" \
+            '[ .[] | select(.milestone.title == $M) ] | length')
 
-          printf '{\n' > supervisor-telemetry/latest.json
-          printf '  "timestamp": "%s",\n' "$TS" >> supervisor-telemetry/latest.json
-          printf '  "status": "ok",\n' >> supervisor-telemetry/latest.json
-          printf '  "source": "supervisor-v3"\n' >> supervisor-telemetry/latest.json
-          printf '}\n' >> supervisor-telemetry/latest.json
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
 
-      # ----------------------------------------------------------
-      # 2. Commit telemetry to gh-pages (safe, no fast-forward failures)
-      # ----------------------------------------------------------
-      - name: Commit supervisor telemetry
+      - name: Scan dashboard issues
+        id: dash_scan
         run: |
-          git add supervisor-telemetry/latest.json
-          git commit -m "Supervisor telemetry update [skip ci]" || echo "No changes."
+          ISSUES=$(cat issues.json)
 
-          git pull --rebase origin gh-pages || git rebase --abort
-          git push origin gh-pages
+          COUNT=$(echo "$ISSUES" | jq \
+            --arg M "$DASH_MILESTONE" \
+            '[ .[] | select(.milestone.title == $M) ] | length')
 
-      # ----------------------------------------------------------
-      # 3. Trigger telemetry merge workflow
-      # ----------------------------------------------------------
-      - name: Trigger telemetry merge
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+
+      - name: Analyze state
         run: |
-          gh workflow run codex-telemetry-merge.yml
+          echo "Sprint issues in active milestone: ${{ steps.sprint_scan.outputs.count }}"
+          echo "Dashboard issues in upgrade milestone: ${{ steps.dash_scan.outputs.count }}"
+
+          # This supervisor does not mutate issues directly.
+          echo "Supervisor v3 completed successfully."

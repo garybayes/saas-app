@@ -15,90 +15,56 @@ permissions:
 jobs:
   selftest:
     runs-on: ubuntu-latest
+
     env:
       GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-      PROJECT_ID: "PVT_kwHODgSGMM4BI6BO"
+      PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
+      REPO: ${{ github.repository }}
 
     steps:
       - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
-          fetch-depth: 1
 
-      - name: Configure Git identity
+      - name: Configure git identity
         run: |
           git config --global user.name "codex-ci-bot"
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
-      # ----------------------------------------------------------
-      # 1. Create issue
-      # ----------------------------------------------------------
-      - name: Create self-test issue
-        id: create_issue
+      - name: Create issue
+        id: create
         run: |
-          ISSUE_URL=$(gh issue create \
-            --title "Codex Self-Test Cycle" \
-            --body "Automated Codex self-test pipeline.")
-          ISSUE_NUM=$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')
-          echo "number=$ISSUE_NUM" >> "$GITHUB_OUTPUT"
+          URL=$(gh issue create --title "Codex Self-Test Cycle" --body "Automated system test.")
+          NUM=$(echo "$URL" | grep -oE '[0-9]+$')
+          echo "number=$NUM" >> $GITHUB_OUTPUT
 
-      # ----------------------------------------------------------
-      # 2. Add to project
-      # ----------------------------------------------------------
-      - name: Add issue to project
+      - name: Add to project
         run: |
-          ISSUE_NUM="${{ steps.create_issue.outputs.number }}"
+          gh project item-add "${PROJECT_ID}" \
+            --url "https://github.com/$REPO/issues/${{ steps.create.outputs.number }}" || true
 
-          NODE=$(gh api graphql -f query='
-            query ($owner:String!,$repo:String!,$num:Int!) {
-              repository(owner:$owner,name:$repo) {
-                issue(number:$num) { id }
-              }
-            }
-          ' -F owner="${GITHUB_REPOSITORY_OWNER}" -F repo="${GITHUB_REPOSITORY#*/}" -F num="$ISSUE_NUM")
-
-          ID=$(echo "$NODE" | grep -oE '"id":"[^"]*"' | sed 's/"id":"\(.*\)"/\1/')
-
-          MUT='mutation($project:ID!,$item:ID!) {
-            addProjectV2ItemById(input:{projectId:$project,contentId:$item}) { item { id } }
-          }'
-
-          gh api graphql -f query="$MUT" -F project="$PROJECT_ID" -F item="$ID"
-
-      # ----------------------------------------------------------
-      # 3. Close issue
-      # ----------------------------------------------------------
       - name: Close issue
         run: |
-          gh issue close "${{ steps.create_issue.outputs.number }}" \
-            --comment "Codex self-test completed successfully."
+          gh issue close "${{ steps.create.outputs.number }}" \
+            --comment "Codex self-test completed."
 
-      # ----------------------------------------------------------
-      # 4. Telemetry snapshot
-      # ----------------------------------------------------------
-      - name: Write self-test telemetry
+      - name: Write telemetry
         run: |
           mkdir -p codex-selftest
           TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          NUM="${{ steps.create_issue.outputs.number }}"
 
           printf '{\n' > codex-selftest/latest.json
           printf '  "timestamp": "%s",\n' "$TS" >> codex-selftest/latest.json
-          printf '  "status": "success",\n' >> codex-selftest/latest.json
-          printf '  "issue": %s,\n' "$NUM" >> codex-selftest/latest.json
-          printf '  "source": "self-test-v4"\n' >> codex-selftest/latest.json
+          printf '  "source": "self-test-v4",\n' >> codex-selftest/latest.json
+          printf '  "issue": %s\n' "${{ steps.create.outputs.number }}" >> codex-selftest/latest.json
           printf '}\n' >> codex-selftest/latest.json
 
           git add codex-selftest/latest.json
-          git commit -m "Self-test telemetry update [skip ci]" || echo "No changes."
-
+          git commit -m "Self-test telemetry [skip ci]" || echo "No changes."
           git pull --rebase origin gh-pages || git rebase --abort
-          git push origin gh-pages
+          git push origin gh-pages || true
 
-      # ----------------------------------------------------------
-      # 5. Trigger merge workflow
-      # ----------------------------------------------------------
       - name: Trigger telemetry merge
         run: |
-          gh workflow run codex-telemetry-merge.yml
+          gh workflow run codex-telemetry-merge-v3.yml

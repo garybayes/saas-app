@@ -1,16 +1,16 @@
 ---
 # yamllint disable rule:truthy
-name: Codex Supervisor Activity Engine v2.1 (Milestone-Based)
+name: Codex Supervisor Activity Engine v2
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "0 */1 * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
-  issues: read
-  pull-requests: read
+  issues: write
+  pull-requests: write
   repository-projects: write
 
 jobs:
@@ -20,9 +20,13 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GH_CI_PAT }}
       REPO: ${{ github.repository }}
-      OWNER: ${{ github.repository_owner }}
-      PROJECT_NUMBER: 1
-      ACTIVE_SPRINT: "Sprint 5 Completion"
+      PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
+      MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
+      DASH_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
+      MAIN_STALE: ${{ vars.CODEX_MAIN_STALE_DAYS }}
+      MAIN_ESC: ${{ vars.CODEX_MAIN_ESCALATE_DAYS }}
+      DASH_STALE: ${{ vars.CODEX_DASHBOARD_STALE_DAYS }}
+      DASH_ESC: ${{ vars.CODEX_DASHBOARD_ESCALATE_DAYS }}
 
     steps:
       - name: Checkout gh-pages
@@ -36,110 +40,66 @@ jobs:
           git config --global user.name "codex-ci-bot"
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
-      # -----------------------------------------------------------
-      # 1. Scan repository state
-      # -----------------------------------------------------------
-      - name: Fetch open PRs
-        id: prscan
-        run: |
-          PRS_JSON=$(gh pr list --state open --json number,title,updatedAt,author,url)
-          echo "$PRS_JSON" > pr.json
-          echo "count=$(echo "$PRS_JSON" | jq -r 'length')" >> $GITHUB_OUTPUT
-
       - name: Fetch open issues
         id: issuescan
         run: |
-          ISSUES_JSON=$(gh issue list --state open --json number,title,labels,milestone,updatedAt,url)
-          echo "$ISSUES_JSON" > issues.json
-          echo "count=$(echo "$ISSUES_JSON" | jq -r 'length')" >> $GITHUB_OUTPUT
+          gh issue list --state open --json number,title,milestone,updatedAt,url > issues.json
 
-      - name: Detect stale PRs (> 24 hours)
-        id: stalescan
+      - name: Add issues to project
         run: |
-          STALE=$(jq '[ .[] | select((now - (.updatedAt | fromdate)) > 86400) ]' pr.json)
-          echo "$STALE" > stale-prs.json
-          echo "count=$(echo "$STALE" | jq -r 'length')" >> $GITHUB_OUTPUT
-
-      - name: Detect blocked issues
-        id: blockerscan
-        run: |
-          BLOCKERS=$(jq '[ .[] | select(.labels[].name? == "blocked") ]' issues.json)
-          echo "$BLOCKERS" > blockers.json
-          echo "count=$(echo "$BLOCKERS" | jq -r 'length')" >> $GITHUB_OUTPUT
-
-      # -----------------------------------------------------------
-      # 2. Sync ONLY Milestone-Based sprint issues
-      # -----------------------------------------------------------
-      - name: Find issues assigned to active sprint milestone
-        id: sprintscan
-        run: |
-          SPRINT_ISSUES=$(jq --arg sprint "$ACTIVE_SPRINT" \
-            '[ .[] | select(.milestone.title? == $sprint) ]' issues.json)
-
-          echo "$SPRINT_ISSUES" > sprint-issues.json
-          echo "count=$(echo "$SPRINT_ISSUES" | jq -r 'length')" >> $GITHUB_OUTPUT
-
-      - name: Ensure sprint issues are added to the project
-        if: steps.sprintscan.outputs.count != '0'
-        run: |
-          jq -r '.[].number' sprint-issues.json | while read ISS; do
-            echo "Adding milestone issue #$ISS to project..."
-            gh project item-add "$PROJECT_NUMBER" \
-              --owner "$OWNER" \
-              --url "https://github.com/$REPO/issues/$ISS" || true
+          jq -r '.[].number' issues.json | while read NUM; do
+            gh project item-add "${PROJECT_ID}" --url "https://github.com/$REPO/issues/$NUM" || true
           done
 
-      # -----------------------------------------------------------
-      # 3. Supervisor actions (stale PR reminders, etc.)
-      # -----------------------------------------------------------
-      - name: Comment on stale PRs
-        if: steps.stalescan.outputs.count != '0'
+      - name: Detect stale main issues
+        id: mainstale
         run: |
-          jq -r '.[].number' stale-prs.json | while read PR; do
-            gh pr comment "$PR" \
-              --body "⏰ **Codex Supervisor:** This PR appears stale. Please update or close."
+          jq \
+            --arg M "$MAIN_MILESTONE" \
+            --argjson DAYS $MAIN_STALE \
+            '[ .[] | select(.milestone.title == $M) |
+               select((now - (.updatedAt | fromdate)) > ($DAYS*86400)) ]' \
+            issues.json > stale-main.json
+          echo "count=$(jq length stale-main.json)" >> $GITHUB_OUTPUT
+
+      - name: Detect stale dashboard issues
+        id: dashstale
+        run: |
+          jq \
+            --arg M "$DASH_MILESTONE" \
+            --argjson DAYS $DASH_STALE \
+            '[ .[] | select(.milestone.title == $M) |
+               select((now - (.updatedAt | fromdate)) > ($DAYS*86400)) ]' \
+            issues.json > stale-dash.json
+          echo "count=$(jq length stale-dash.json)" >> $GITHUB_OUTPUT
+
+      - name: Comment on stale items
+        if: steps.mainstale.outputs.count != '0' || steps.dashstale.outputs.count != '0'
+        run: |
+          for FILE in stale-main.json stale-dash.json; do
+            jq -r '.[].number' "$FILE" | while read ISS; do
+              gh issue comment "$ISS" \
+                --body "⏰ **Codex Activity Engine:** Issue appears stale. Please review."
+            done
           done
 
-      - name: Escalate blocked issues
-        if: steps.blockerscan.outputs.count != '0'
-        run: |
-          jq -r '.[].number' blockers.json | while read ISS; do
-            gh issue edit "$ISS" --add-label "needs-attention"
-            gh issue comment "$ISS" \
-              --body "🚨 **Codex Supervisor:** This issue is marked *blocked*. Please update."
-          done
-
-      # -----------------------------------------------------------
-      # 4. Write supervisor telemetry
-      # -----------------------------------------------------------
-      - name: Write telemetry snapshot
+      - name: Write telemetry
         run: |
           mkdir -p supervisor-telemetry
-
           TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           printf '{\n' > supervisor-telemetry/latest.json
           printf '  "timestamp": "%s",\n' "$TS" >> supervisor-telemetry/latest.json
-          printf '  "status": "ok",\n' >> supervisor-telemetry/latest.json
-          printf '  "source": "activity-engine-v2.1",\n' >> supervisor-telemetry/latest.json
-          printf '  "pr_open": %s,\n' "${{ steps.prscan.outputs.count }}" >> supervisor-telemetry/latest.json
-          printf '  "issues_open": %s,\n' "${{ steps.issuescan.outputs.count }}" >> supervisor-telemetry/latest.json
-          printf '  "pr_stale": %s,\n' "${{ steps.stalescan.outputs.count }}" >> supervisor-telemetry/latest.json
-          printf '  "issues_blocked": %s,\n' "${{ steps.blockerscan.outputs.count }}" >> supervisor-telemetry/latest.json
-          printf '  "sprint_issues": %s\n' "${{ steps.sprintscan.outputs.count }}" >> supervisor-telemetry/latest.json
+          printf '  "source": "activity-engine-v2",\n' >> supervisor-telemetry/latest.json
+          printf '  "stale_main": %s,\n' "${{ steps.mainstale.outputs.count }}" >> supervisor-telemetry/latest.json
+          printf '  "stale_dashboard": %s\n' "${{ steps.dashstale.outputs.count }}" >> supervisor-telemetry/latest.json
           printf '}\n' >> supervisor-telemetry/latest.json
 
-      - name: Commit telemetry (safe rebase)
-        run: |
           git add supervisor-telemetry/latest.json
-          git commit -m "Activity Engine v2.1 telemetry [skip ci]" || echo "no changes"
+          git commit -m "Activity Engine telemetry [skip ci]" || echo "No changes."
           git pull --rebase origin gh-pages || git rebase --abort
-          git push origin gh-pages || echo "push failed, will retry next run"
+          git push origin gh-pages || true
 
-      # -----------------------------------------------------------
-      # 5. Trigger telemetry merge
-      # -----------------------------------------------------------
-      - name: Trigger merge
+      - name: Trigger merge workflow
         run: |
-          gh workflow run codex-telemetry-merge.yml
-          echo "Triggered merge workflow."
+          gh workflow run codex-telemetry-merge-v3.yml

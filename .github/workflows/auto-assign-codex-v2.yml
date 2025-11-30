@@ -1,25 +1,19 @@
 ---
-# yamllint disable rule:truthy
-name: Auto-Assign Codex to New Issues
+name: Auto-Assign Codex v2
 
 on:
   issues:
     types: [opened]
 
 permissions:
-  contents: read
   issues: write
-  repository-projects: write
 
 jobs:
-  add:
+  assign:
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
     steps:
-      - name: Assign to Example Project
-        uses: actions/add-to-project@v0.6.0
-        with:
-          project-url: https://github.com/users/garybayes/projects/1
-          github-token: ${{ secrets.GH_CI_PAT }}
+      - run: |
+          gh issue edit "${{ github.event.issue.number }}" \
+            --add-label "codex" \
+            --add-label "triage"
