@@ -1,0 +1,25 @@
+{
+  "telemetry": [
+    {
+  "timestamp": "2025-11-30T17:40:11Z",
+  "source": "dual-track-supervisor-v3.2",
+  "main": {
+    "milestone": "Sprint 4 Stabilization",
+    "total": 5,
+    "stale": 0,
+    "escalated": 0
+  },
+  "dashboard": {
+    "milestone": "Dashboard Validation",
+    "total": 3,
+    "stale": 0,
+    "escalated": 0
+  }
+},
+    {
+  "timestamp": "2025-11-30T12:34:27Z",
+  "source": "self-test-v4",
+  "issue": 99
+}
+  ]
+}
