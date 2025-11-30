@@ -1,11 +1,11 @@
 ---
-# yamllint disable rule:truthy
 name: Codex Dashboard Deploy v2
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
       - "codex/dashboard/**"
 
@@ -17,24 +17,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Checkout gh-pages (TARGET BRANCH)
       - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
 
-      - name: Prepare gh-pages
+      # 2. Fetch main (SOURCE BRANCH) into a subfolder
+      - name: Fetch main branch
         run: |
-          git fetch origin gh-pages
-          git switch gh-pages
+          git fetch origin main
+          git checkout origin/main -- codex/dashboard
 
+      # 3. Deploy dashboard files
       - name: Copy dashboard files
         run: |
           rm -rf dashboard
           mkdir -p dashboard
           cp -R codex/dashboard/* dashboard/
 
-      - name: Commit & push
+      # 4. Commit & push
+      - name: Commit and push changes
         run: |
           git config --global user.name "codex-ci-bot"
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
           git add dashboard/
           git commit -m "Deploy Codex Dashboard v2 [skip ci]" || echo "No changes."
-          git push origin gh-pages || true
+          git push origin gh-pages
