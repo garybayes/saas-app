@@ -1,5 +1,5 @@
 ---
-name: Codex Dashboard Deploy v2
+name: Codex Dashboard Deploy v2.1
 
 on:
   workflow_dispatch:
@@ -17,30 +17,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout gh-pages (TARGET BRANCH)
+      # 1. Checkout gh-pages branch (target)
       - uses: actions/checkout@v4
         with:
           ref: gh-pages
 
-      # 2. Fetch main (SOURCE BRANCH) into a subfolder
-      - name: Fetch main branch
+      # 2. Checkout only dashboard files from main (source)
+      - name: Fetch dashboard from main
         run: |
           git fetch origin main
           git checkout origin/main -- codex/dashboard
 
-      # 3. Deploy dashboard files
-      - name: Copy dashboard files
+      # 3. Deploy files to the correct location
+      - name: Deploy dashboard files
         run: |
           rm -rf dashboard
           mkdir -p dashboard
           cp -R codex/dashboard/* dashboard/
 
-      # 4. Commit & push
+          # Clean up accidental leftover folders
+          rm -rf codex
+
+      # 4. Commit & push changes
       - name: Commit and push changes
         run: |
           git config --global user.name "codex-ci-bot"
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
           git add dashboard/
-          git commit -m "Deploy Codex Dashboard v2 [skip ci]" || echo "No changes."
+          git commit -m "Deploy Codex Dashboard v2.1 [skip ci]" || echo "No changes."
           git push origin gh-pages
