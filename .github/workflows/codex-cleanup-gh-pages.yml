@@ -62,6 +62,12 @@ jobs:
               echo "✔ Directory exists: $DIR"
             fi
           done
+          # Create .gitkeep files so directories are committed
+          for DIR in "${REQUIRED_DIRS[@]}"; do
+            if [[ ! -f "$DIR/.gitkeep" ]]; then
+              touch "$DIR/.gitkeep"
+            fi
+          done
 
       # -------------------------------------------------------
       # 4. Ensure codex-data.json exists
