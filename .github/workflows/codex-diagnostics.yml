@@ -24,10 +24,10 @@ jobs:
           fetch-depth: 0
 
       # ---------------------------------------------------------
-      # 2. Install GitHub CLI (correct official action)
+      # 2. Verify GitHub CLI is already available on runner
       # ---------------------------------------------------------
-      - name: Install GitHub CLI
-        uses: actions/setup-gh@v3
+      - name: Verify GitHub CLI
+        run: gh --version
 
       # ---------------------------------------------------------
       # 3. Verify required repository variables
@@ -109,49 +109,4 @@ jobs:
               echo "::error::Missing directory on gh-pages: $DIR"
               exit 1
             fi
-            echo "✔ $DIR exists"
-          done
-
-          if [[ ! -f "ghp/codex-data.json" ]]; then
-            echo "::error::Missing codex-data.json on gh-pages"
-            exit 1
-          fi
-
-          echo "✔ codex-data.json exists"
-
-      # ---------------------------------------------------------
-      # 7. Validate deployed dashboard
-      # ---------------------------------------------------------
-      - name: Validate dashboard directory
-        run: |
-          echo "Checking deployed dashboard directory..."
-
-          if [[ ! -d "ghp/dashboard" ]]; then
-            echo "::error::Missing dashboard directory on gh-pages"
-            exit 1
-          fi
-
-          echo "✔ dashboard directory exists"
-
-      # ---------------------------------------------------------
-      # 8. Validate dashboard source on main branch
-      # ---------------------------------------------------------
-      - name: Validate dashboard source (codex/dashboard)
-        run: |
-          echo "Checking source dashboard under main branch..."
-
-          if [[ ! -d "codex/dashboard" ]]; then
-            echo "::error::Missing codex/dashboard source directory"
-            exit 1
-          fi
-
-          echo "✔ codex/dashboard source directory exists"
-
-      # ---------------------------------------------------------
-      # 9. Summary
-      # ---------------------------------------------------------
-      - name: Summary
-        run: |
-          echo "----------------------------------------"
-          echo "Codex Diagnostics Completed Successfully"
-          echo "----------------------------------------"
+            echo "✔
