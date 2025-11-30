@@ -6,23 +6,20 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  issues: write
+  repository-projects: write
 
 jobs:
   diag:
     runs-on: ubuntu-latest
-
     env:
       GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-      REPO: ${{ github.repository }}
-
       CODEX_PROJECT_URL: ${{ vars.CODEX_PROJECT_URL }}
       CODEX_PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
       CODEX_PROJECT_NUMBER: ${{ vars.CODEX_PROJECT_NUMBER }}
-
       CODEX_MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
       CODEX_DASHBOARD_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
-
       CODEX_MAIN_STALE_DAYS: ${{ vars.CODEX_MAIN_STALE_DAYS }}
       CODEX_MAIN_ESCALATE_DAYS: ${{ vars.CODEX_MAIN_ESCALATE_DAYS }}
       CODEX_DASHBOARD_STALE_DAYS: ${{ vars.CODEX_DASHBOARD_STALE_DAYS }}
@@ -31,29 +28,47 @@ jobs:
       CODEX_ACTIVITY_ESCALATE_DAYS: ${{ vars.CODEX_ACTIVITY_ESCALATE_DAYS }}
 
     steps:
-      - name: Print variables
+      - name: Print Codex configuration
         run: |
           echo "Project URL: $CODEX_PROJECT_URL"
-          echo "Project ID:  $CODEX_PROJECT_ID"
-          echo "Project #:   $CODEX_PROJECT_NUMBER"
-          echo "Main:        $CODEX_MAIN_MILESTONE"
-          echo "Dash:        $CODEX_DASHBOARD_MILESTONE"
+          echo "Project ID: $CODEX_PROJECT_ID"
+          echo "Project #: $CODEX_PROJECT_NUMBER"
+          echo "Main milestone: $CODEX_MAIN_MILESTONE"
+          echo "Dash milestone: $CODEX_DASHBOARD_MILESTONE"
+          echo "Main stale: $CODEX_MAIN_STALE_DAYS"
+          echo "Main escalate: $CODEX_MAIN_ESCALATE_DAYS"
+          echo "Dash stale: $CODEX_DASHBOARD_STALE_DAYS"
+          echo "Dash escalate: $CODEX_DASHBOARD_ESCALATE_DAYS"
+          echo "Activity stale: $CODEX_ACTIVITY_STALE_DAYS"
+          echo "Activity escalate: $CODEX_ACTIVITY_ESCALATE_DAYS"
 
-      - name: Test GitHub authentication
-        run: |
-          gh auth status
+      - name: Verify GitHub authentication
+        run: gh auth status
 
-      - name: Validate Project URL
+      - name: Validate project reference
         run: |
           URL="$CODEX_PROJECT_URL"
           NUM=$(echo "$URL" | grep -oE '[0-9]+$')
           echo "Detected project number: $NUM"
           gh project view "$NUM" --owner "${GITHUB_REPOSITORY_OWNER}"
 
-      - name: Check gh-pages exists
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          fetch-depth: 2
+          path: repo
+
+      - name: Inspect gh-pages telemetry
         run: |
-          set -e
-          git clone --depth 1 "https://github.com/$REPO" repo
           cd repo
-          git fetch origin gh-pages || true
-          git checkout gh-pages || echo "gh-pages branch not found."
+          echo "Listing root of gh-pages:"
+          ls -al
+          echo "Telemetry directories:"
+          ls -al | grep telemetry || true
+          echo "Codex data file:"
+          if [ -f codex-data.json ]; then
+            echo "codex-data.json is present"
+          else
+            echo "codex-data.json is MISSING"
+          fi
