@@ -32,7 +32,7 @@ jobs:
           fetch-depth: 0
 
       # ---------------------------------------------------------
-      # 2. Create a unique self-test issue (no --json flag)
+      # 2. Create a self-test issue (JSON-free compatible method)
       # ---------------------------------------------------------
       - name: Create self-test issue
         id: create_issue
@@ -42,29 +42,33 @@ jobs:
 
           echo "Creating issue: $TITLE"
 
+          # Create the issue
           gh issue create \
             --title "$TITLE" \
             --body "$BODY" \
             --repo "${{ github.repository }}"
 
-          # Retrieve newly-created issue URL via list search
-          ISSUE_URL=$(gh issue list \
+          # Extract the issue number via plain text parsing
+          ISSUE_NUMBER=$(gh issue list \
             --state open \
-            --limit 1 \
             --search "$TITLE" \
-            --json url \
-            | jq -r '.[0].url')
+            --limit 1 \
+            | awk '{print $1}')
 
+          # Construct a valid GitHub issue URL
+          ISSUE_URL="https://github.com/${{ github.repository }}/issues/$ISSUE_NUMBER"
+
+          echo "Created issue URL: $ISSUE_URL"
           echo "issue_url=$ISSUE_URL" >> "$GITHUB_OUTPUT"
 
       # ---------------------------------------------------------
-      # 3. Add issue to Project V2 (correct GH CLI syntax)
+      # 3. Add issue to Project V2 (correct CLI syntax)
       # ---------------------------------------------------------
       - name: Add issue to Codex project
         run: |
-          echo "Adding issue to project: $CODEX_PROJECT_URL"
-
           ISSUE_URL=${{ steps.create_issue.outputs.issue_url }}
+
+          echo "Adding issue to project: $ISSUE_URL"
 
           gh project item-add "$CODEX_PROJECT_NUMBER" \
             --url "$ISSUE_URL" \
