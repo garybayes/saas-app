@@ -67,7 +67,7 @@ jobs:
           echo "issue_url=$ISSUE_URL" >> "$GITHUB_OUTPUT"
 
       # ---------------------------------------------------------
-      # 3. Add issue to Project V2 (2025 GitHub API)
+      # 3. Add issue to Project V2 (CORRECT mutation name)
       # ---------------------------------------------------------
       - name: Add issue to Codex project
         run: |
@@ -87,10 +87,10 @@ jobs:
 
           echo "Issue node ID: $ISSUE_ID"
 
-          echo "Adding issue to project using addProjectV2Item..."
+          echo "Adding issue to project using addProjectV2ItemById..."
           gh api graphql -f query='
             mutation($project: ID!, $content: ID!) {
-              addProjectV2Item(
+              addProjectV2ItemById(
                 input: {projectId: $project, contentId: $content}
               ) {
                 item { id }
