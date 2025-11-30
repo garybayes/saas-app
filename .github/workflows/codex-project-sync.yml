@@ -1,0 +1,26 @@
+---
+# yamllint disable rule:truthy
+name: Codex Project Sync
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+  repository-projects: write
+
+jobs:
+  sync-to-project:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+      PROJECT_URL: ${{ vars.CODEX_PROJECT_URL }}
+
+    steps:
+      - name: Add new issue to Codex project
+        uses: actions/add-to-project@v0.6.0
+        with:
+          project-url: ${{ env.PROJECT_URL }}
+          github-token: ${{ env.GH_TOKEN }}

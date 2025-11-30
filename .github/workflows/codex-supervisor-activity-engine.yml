@@ -1,0 +1,155 @@
+---
+# yamllint disable rule:truthy
+name: Codex Supervisor – Activity Engine
+
+on:
+  schedule:
+    - cron: "0 * * * *" # hourly
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  activity-engine:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+      REPO: ${{ github.repository }}
+      ACTIVITY_STALE_DAYS_VAR: ${{ vars.CODEX_ACTIVITY_STALE_DAYS }}
+      ACTIVITY_ESCALATE_DAYS_VAR: ${{ vars.CODEX_ACTIVITY_ESCALATE_DAYS }}
+
+    steps:
+      - name: Checkout gh-pages (for telemetry)
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          fetch-depth: 1
+
+      - name: Configure git identity
+        run: |
+          git config --global user.name "codex-ci-bot"
+          git config --global user.email "codex-ci-bot@users.noreply.github.com"
+
+      - name: Resolve activity thresholds
+        id: thresholds
+        run: |
+          set -e
+          stale="${ACTIVITY_STALE_DAYS_VAR:-3}"
+          esc="${ACTIVITY_ESCALATE_DAYS_VAR:-5}"
+
+          echo "stale=$stale" >> "$GITHUB_OUTPUT"
+          echo "esc=$esc" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch open PRs
+        id: prscan
+        run: |
+          set -e
+          gh pr list --state open \
+            --json number,title,updatedAt,url > prs.json
+          echo "prs_total=$(jq 'length' prs.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch open issues (for blocked)
+        id: issuescan
+        run: |
+          set -e
+          gh issue list --state open \
+            --json number,title,labels,updatedAt,url > issues.json
+          echo "issues_total=$(jq 'length' issues.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Detect stale PRs
+        id: stales
+        run: |
+          set -e
+          days="${{ steps.thresholds.outputs.stale }}"
+          sec_per_day=86400
+          now=$(date -u +%s)
+
+          jq --argjson now "$now" --argjson thresh "$((days*sec_per_day))" '
+            [ .[]
+              | . as $p
+              | ($now - (.updatedAt | fromdate)) as $age
+              | select($age >= $thresh)
+              | {
+                  number: $p.number,
+                  url: $p.url,
+                  age_seconds: $age
+                }
+            ]' prs.json > stale-prs.json
+
+          echo "stale_count=$(jq 'length' stale-prs.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Comment on stale PRs
+        if: steps.stales.outputs.stale_count != '0'
+        run: |
+          set -e
+          jq -r '.[].number' stale-prs.json | while read -r num; do
+            gh pr comment "$num" --body "⏰ **Codex Activity Engine:** This PR appears stale. Please review, update, or close it."
+          done
+
+      - name: Detect blocked issues
+        id: blocked
+        run: |
+          set -e
+          jq '[ .[]
+               | select(.labels != null)
+               | select([.labels[].name] | any(. == "blocked"))
+             ]' issues.json > blocked.json
+          echo "blocked_count=$(jq 'length' blocked.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Escalate blocked issues
+        if: steps.blocked.outputs.blocked_count != '0'
+        run: |
+          set -e
+          jq -r '.[].number' blocked.json | while read -r num; do
+            gh issue edit "$num" --add-label "needs-attention"
+            gh issue comment "$num" --body "🚨 **Codex Activity Engine:** This issue is blocked and has been escalated. Please update status or unblock."
+          done
+
+      - name: Write activity-engine telemetry snapshot
+        run: |
+          set -e
+          mkdir -p supervisor-telemetry
+
+          TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          PRS_TOTAL="${{ steps.prscan.outputs.prs_total || '0' }}"
+          ISSUES_TOTAL="${{ steps.issuescan.outputs.issues_total || '0' }}"
+          STALE="${{ steps.stales.outputs.stale_count || '0' }}"
+          BLOCKED="${{ steps.blocked.outputs.blocked_count || '0' }}"
+
+          printf '{\n' > supervisor-telemetry/latest.json
+          printf '  "timestamp": "%s",\n' "$TS" >> supervisor-telemetry/latest.json
+          printf '  "source": "activity-engine-v3.2",\n' >> supervisor-telemetry/latest.json
+          printf '  "pr_open": %s,\n' "$PRS_TOTAL" >> supervisor-telemetry/latest.json
+          printf '  "issues_open": %s,\n' "$ISSUES_TOTAL" >> supervisor-telemetry/latest.json
+          printf '  "pr_stale": %s,\n' "$STALE" >> supervisor-telemetry/latest.json
+          printf '  "issues_blocked": %s\n' "$BLOCKED" >> supervisor-telemetry/latest.json
+          printf '}\n' >> supervisor-telemetry/latest.json
+
+      - name: Commit telemetry
+        run: |
+          set -e
+          git add supervisor-telemetry/latest.json || true
+
+          if git diff --cached --quiet; then
+            echo "No telemetry changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Codex Activity Engine telemetry [skip ci]" || exit 0
+
+          for i in 1 2 3; do
+            if git push origin gh-pages; then
+              echo "Telemetry push succeeded."
+              break
+            fi
+            echo "Telemetry push failed – retrying..."
+            git pull --rebase origin gh-pages || git rebase --abort
+          done
+
+      - name: Trigger telemetry merge
+        run: |
+          gh workflow run codex-telemetry-merge.yml
+          echo "Triggered Codex Telemetry Merge."

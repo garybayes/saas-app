@@ -1,0 +1,79 @@
+---
+# yamllint disable rule:truthy
+name: Codex Telemetry Merge
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Codex Supervisor – Dual Track
+      - Codex Supervisor – Activity Engine
+      - Codex Self-Test
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+jobs:
+  merge-telemetry:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          fetch-depth: 0
+
+      - name: Merge supervisor + self-test telemetry
+        run: |
+          set -e
+
+          git pull --rebase origin gh-pages || git rebase --abort || true
+
+          mkdir -p supervisor-telemetry codex-selftest
+
+          SUP_FILE="supervisor-telemetry/latest.json"
+          SELF_FILE="codex-selftest/latest.json"
+          OUT_FILE="codex-data.json"
+
+          SUP="{}"
+          SELF="{}"
+
+          if [ -f "$SUP_FILE" ]; then
+            SUP=$(cat "$SUP_FILE")
+          fi
+
+          if [ -f "$SELF_FILE" ]; then
+            SELF=$(cat "$SELF_FILE")
+          fi
+
+          TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          printf '{\n' > "$OUT_FILE"
+          printf '  "updated_at": "%s",\n' "$TS" >> "$OUT_FILE"
+          printf '  "supervisor": %s,\n' "$SUP" >> "$OUT_FILE"
+          printf '  "selftest": %s\n' "$SELF" >> "$OUT_FILE"
+          printf '}\n' >> "$OUT_FILE"
+
+          git add "$OUT_FILE" || true
+
+          if git diff --cached --quiet; then
+            echo "No merged telemetry changes to commit."
+            exit 0
+          fi
+
+          git config --global user.name "codex-ci-bot"
+          git config --global user.email "codex-ci-bot@users.noreply.github.com"
+
+          git commit -m "Merged telemetry update [skip ci]" || exit 0
+
+          for i in 1 2 3; do
+            if git push origin gh-pages; then
+              echo "Merged telemetry push succeeded."
+              break
+            fi
+            echo "Merged telemetry push failed – retrying..."
+            git pull --rebase origin gh-pages || git rebase --abort
+          done

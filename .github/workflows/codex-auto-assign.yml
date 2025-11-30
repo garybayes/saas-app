@@ -1,0 +1,32 @@
+---
+# yamllint disable rule:truthy
+name: Codex Auto-Assign Issues
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  assign:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+
+    steps:
+      - name: Auto-label and assign Codex
+        run: |
+          set -e
+          NUM="${{ github.event.issue.number }}"
+
+          gh issue edit "$NUM" \
+            --add-label "codex" \
+            --add-label "triage"
+
+          # Assign to repo owner by default
+          OWNER="${REPO%/*}"
+          gh issue edit "$NUM" --add-assignee "$OWNER" || true

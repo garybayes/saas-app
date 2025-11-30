@@ -1,0 +1,69 @@
+---
+# yamllint disable rule:truthy
+name: Codex Deploy Dashboard
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "codex/dashboard/**"
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main (dashboard source)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: repo-main
+          fetch-depth: 1
+
+      - name: Checkout gh-pages (deployment target)
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: repo-pages
+          fetch-depth: 1
+
+      - name: Copy dashboard files from main to gh-pages
+        run: |
+          set -e
+          echo "Clearing old dashboard…"
+          rm -rf repo-pages/dashboard
+          mkdir -p repo-pages/dashboard
+
+          echo "Copying dashboard from main → gh-pages…"
+          cp -R repo-main/codex/dashboard/* repo-pages/dashboard/
+
+      - name: Commit & push dashboard changes
+        run: |
+          set -e
+          cd repo-pages
+
+          git config --global user.name  "codex-ci-bot"
+          git config --global user.email "codex-ci-bot@users.noreply.github.com"
+
+          git add dashboard/
+
+          if git diff --cached --quiet; then
+            echo "No dashboard changes detected."
+            exit 0
+          fi
+
+          git commit -m "Deploy Codex Dashboard v2.x [skip ci]" || exit 0
+
+          for i in 1 2 3; do
+            if git push origin gh-pages; then
+              echo "Dashboard deploy push succeeded."
+              break
+            fi
+            echo "Dashboard deploy push failed – retrying..."
+            git pull --rebase origin gh-pages || git rebase --abort
+          done
