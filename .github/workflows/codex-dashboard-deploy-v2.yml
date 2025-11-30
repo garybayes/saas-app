@@ -1,5 +1,6 @@
 ---
-name: Codex Dashboard Deploy v2.1
+# yamllint disable rule:truthy
+name: Codex Deploy Dashboard v2.3
 
 on:
   workflow_dispatch:
@@ -17,33 +18,56 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout gh-pages branch (target)
-      - uses: actions/checkout@v4
+      ############################################################
+      # 1. Checkout MAIN (source for dashboard)
+      ############################################################
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: repo-main
+          fetch-depth: 1
+
+      ############################################################
+      # 2. Checkout GH-PAGES (destination)
+      ############################################################
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
         with:
           ref: gh-pages
+          path: repo-pages
+          fetch-depth: 1
 
-      # 2. Checkout only dashboard files from main (source)
-      - name: Fetch dashboard from main
+      ############################################################
+      # 3. Deploy dashboard from main → gh-pages
+      ############################################################
+      - name: Copy dashboard files
         run: |
-          git fetch origin main
-          git checkout origin/main -- codex/dashboard
+          set -e
 
-      # 3. Deploy files to the correct location
-      - name: Deploy dashboard files
+          echo "Clearing old dashboard…"
+          rm -rf repo-pages/dashboard
+          mkdir -p repo-pages/dashboard
+
+          echo "Copying dashboard from main → gh-pages…"
+          cp -R repo-main/codex/dashboard/* repo-pages/dashboard/
+
+      ############################################################
+      # 4. Commit & Push
+      ############################################################
+      - name: Commit and push
         run: |
-          rm -rf dashboard
-          mkdir -p dashboard
-          cp -R codex/dashboard/* dashboard/
+          set -e
+          cd repo-pages
 
-          # Clean up accidental leftover folders
-          rm -rf codex
-
-      # 4. Commit & push changes
-      - name: Commit and push changes
-        run: |
-          git config --global user.name "codex-ci-bot"
+          git config --global user.name  "codex-ci-bot"
           git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
           git add dashboard/
-          git commit -m "Deploy Codex Dashboard v2.1 [skip ci]" || echo "No changes."
-          git push origin gh-pages
+
+          if ! git diff --cached --quiet; then
+            git commit -m "Deploy Codex Dashboard v2.3 [skip ci]"
+            git push origin gh-pages
+          else
+            echo "No changes detected."
+          fi
