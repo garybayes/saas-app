@@ -32,7 +32,7 @@ jobs:
           fetch-depth: 0
 
       # ---------------------------------------------------------
-      # 2. Create a unique self-test issue
+      # 2. Create a unique self-test issue (no --json flag)
       # ---------------------------------------------------------
       - name: Create self-test issue
         id: create_issue
@@ -42,12 +42,18 @@ jobs:
 
           echo "Creating issue: $TITLE"
 
-          ISSUE_URL=$(gh issue create \
+          gh issue create \
             --title "$TITLE" \
             --body "$BODY" \
-            --repo "${{ github.repository }}" \
-            --json url,id \
-            | jq -r '.url')
+            --repo "${{ github.repository }}"
+
+          # Retrieve newly-created issue URL via list search
+          ISSUE_URL=$(gh issue list \
+            --state open \
+            --limit 1 \
+            --search "$TITLE" \
+            --json url \
+            | jq -r '.[0].url')
 
           echo "issue_url=$ISSUE_URL" >> "$GITHUB_OUTPUT"
 
@@ -62,7 +68,8 @@ jobs:
 
           gh project item-add \
             --url "$ISSUE_URL" \
-            --owner "garybayes"
+            --owner "garybayes" \
+            --project-number "$CODEX_PROJECT_NUMBER"
 
       # ---------------------------------------------------------
       # 4. Close issue
