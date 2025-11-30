@@ -29,10 +29,15 @@ jobs:
       DASH_ESC: ${{ vars.CODEX_DASHBOARD_ESCALATE_DAYS }}
 
     steps:
-      - name: Fetch supervisor status
+      - name: Codex Supervisor starting
         run: |
           echo "Codex Dual-Track Supervisor starting…"
           gh --version
+      # REQUIRED: gh CLI fails unless .git exists
+      - name: Checkout repo (minimal)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Scan sprint issues
         id: sprint_scan
