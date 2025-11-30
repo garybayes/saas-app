@@ -1,71 +1,46 @@
----
-# yamllint disable rule:truthy
-name: Codex Dual-Track Supervisor v3
+# ----------------------------------------------------------
+# 1. Checkout gh-pages into ./repo-pages
+# ----------------------------------------------------------
+- name: Checkout gh-pages
+  uses: actions/checkout@v4
+  with:
+    ref: gh-pages
+    path: repo-pages
+    fetch-depth: 1
 
-on:
-  schedule:
-    - cron: "*/15 * * * *"
-  workflow_dispatch:
+# ----------------------------------------------------------
+# 2. Generate Supervisor Telemetry Snapshot
+# ----------------------------------------------------------
+- name: Write supervisor telemetry
+  run: |
+    set -e
+    mkdir -p repo-pages/supervisor-telemetry
 
-permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-  repository-projects: write
+    TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-jobs:
-  supervisor:
-    runs-on: ubuntu-latest
+    cat <<EOF > repo-pages/supervisor-telemetry/latest.json
+{
+  "timestamp": "$TS",
+  "status": "ok",
+  "source": "supervisor-v3"
+}
+EOF
 
-    env:
-      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-      REPO: ${{ github.repository }}
-      PROJECT_URL: ${{ vars.CODEX_PROJECT_URL }}
-      MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
-      DASH_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
-      MAIN_STALE: ${{ vars.CODEX_MAIN_STALE_DAYS }}
-      DASH_STALE: ${{ vars.CODEX_DASHBOARD_STALE_DAYS }}
-      MAIN_ESC: ${{ vars.CODEX_MAIN_ESCALATE_DAYS }}
-      DASH_ESC: ${{ vars.CODEX_DASHBOARD_ESCALATE_DAYS }}
+# ----------------------------------------------------------
+# 3. Commit + Push
+# ----------------------------------------------------------
+- name: Commit supervisor telemetry
+  run: |
+    cd repo-pages
 
-    steps:
-      - name: Codex Supervisor starting
-        run: |
-          echo "Codex Dual-Track Supervisor starting…"
-          gh --version
-      # REQUIRED: gh CLI fails unless .git exists
-      - name: Checkout repo (minimal)
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+    git config --global user.name  "codex-ci-bot"
+    git config --global user.email "codex-ci-bot@users.noreply.github.com"
 
-      - name: Scan sprint issues
-        id: sprint_scan
-        run: |
-          ISSUES=$(gh issue list --state open --json number,title,milestone,updatedAt,url)
-          echo "$ISSUES" > issues.json
+    git add supervisor-telemetry/latest.json
 
-          COUNT=$(echo "$ISSUES" | jq \
-            --arg M "$MAIN_MILESTONE" \
-            '[ .[] | select(.milestone.title == $M) ] | length')
-
-          echo "count=$COUNT" >> $GITHUB_OUTPUT
-
-      - name: Scan dashboard issues
-        id: dash_scan
-        run: |
-          ISSUES=$(cat issues.json)
-
-          COUNT=$(echo "$ISSUES" | jq \
-            --arg M "$DASH_MILESTONE" \
-            '[ .[] | select(.milestone.title == $M) ] | length')
-
-          echo "count=$COUNT" >> $GITHUB_OUTPUT
-
-      - name: Analyze state
-        run: |
-          echo "Sprint issues in active milestone: ${{ steps.sprint_scan.outputs.count }}"
-          echo "Dashboard issues in upgrade milestone: ${{ steps.dash_scan.outputs.count }}"
-
-          # This supervisor does not mutate issues directly.
-          echo "Supervisor v3 completed successfully."
+    if ! git diff --cached --quiet; then
+      git commit -m "Supervisor telemetry update [skip ci]"
+      git push origin gh-pages
+    else
+      echo "No telemetry changes to commit."
+    fi
