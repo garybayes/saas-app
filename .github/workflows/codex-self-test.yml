@@ -1,109 +1,147 @@
----
 # yamllint disable rule:truthy
-name: Codex – Self-Test
+---
+name: Codex Self-Test
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 */6 * * *"
 
 permissions:
   contents: write
   issues: write
-  repository-projects: write
+  actions: read
+  project: write
 
 jobs:
-  codex-self-test:
+  selftest:
+    name: Run Codex Self-Test
     runs-on: ubuntu-latest
 
     env:
-      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-      REPO: ${{ github.repository }}
-      PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
+      CODEX_PROJECT_URL: ${{ vars.CODEX_PROJECT_URL }}
+      CODEX_PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
+      CODEX_PROJECT_NUMBER: ${{ vars.CODEX_PROJECT_NUMBER }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
+      # ---------------------------------------------------------
+      # 1. Checkout repo
+      # ---------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ---------------------------------------------------------
+      # 2. Create a unique self-test issue
+      # ---------------------------------------------------------
+      - name: Create self-test issue
+        id: create_issue
+        run: |
+          TITLE="Codex Self-Test $(date +%s)"
+          BODY="Codex automated self-test issue."
+
+          echo "Creating issue: $TITLE"
+
+          ISSUE_URL=$(gh issue create \
+            --title "$TITLE" \
+            --body "$BODY" \
+            --repo "${{ github.repository }}" \
+            --json url,id \
+            | jq -r '.url')
+
+          echo "issue_url=$ISSUE_URL" >> "$GITHUB_OUTPUT"
+
+      # ---------------------------------------------------------
+      # 3. Add issue to Project V2
+      # ---------------------------------------------------------
+      - name: Add issue to Codex project
+        run: |
+          echo "Adding issue to project: $CODEX_PROJECT_URL"
+
+          ISSUE_ID=$(echo "${{ steps.create_issue.outputs.issue_url }}" \
+            | xargs gh api \
+            --jq '.id' \
+            | tr -d '\n')
+
+          gh project item-add "$CODEX_PROJECT_NUMBER" --id "$ISSUE_ID"
+
+      # ---------------------------------------------------------
+      # 4. Close issue
+      # ---------------------------------------------------------
+      - name: Close self-test issue
+        run: |
+          ISSUE_URL=${{ steps.create_issue.outputs.issue_url }}
+          gh issue close "$ISSUE_URL"
+
+      # ---------------------------------------------------------
+      # 5. Prepare self-test telemetry JSON
+      # ---------------------------------------------------------
+      - name: Generate self-test telemetry
+        run: |
+          mkdir -p activity-telemetry
+
+          cat <<EOF > activity-telemetry/latest.json
+          {
+            "selftest": [
+              {
+                "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+                "status": "ok",
+                "issue": "${{ steps.create_issue.outputs.issue_url }}"
+              }
+            ]
+          }
+          EOF
+
+          echo "Generated self-test telemetry:"
+          cat activity-telemetry/latest.json
+
+      # ---------------------------------------------------------
+      # 6. Checkout gh-pages to write telemetry
+      # ---------------------------------------------------------
       - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
-          fetch-depth: 1
+          fetch-depth: 0
+          path: ghp
 
-      - name: Git identity
+      # ---------------------------------------------------------
+      # 7. Write self-test telemetry to gh-pages
+      # ---------------------------------------------------------
+      - name: Copy telemetry to gh-pages
         run: |
-          git config --global user.name "codex-ci-bot"
-          git config --global user.email "codex-ci-bot@users.noreply.github.com"
+          mkdir -p ghp/activity-telemetry
+          cp activity-telemetry/latest.json ghp/activity-telemetry/latest.json
 
-      # ------------------------------------------------------------------
-      # 1. Create issue
-      # ------------------------------------------------------------------
-      - name: Create self-test issue
-        id: issue
+      # ---------------------------------------------------------
+      # 8. Commit telemetry update
+      # ---------------------------------------------------------
+      - name: Commit telemetry file
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ISSUE_URL=$(gh issue create \
-            --title "Codex Self-Test Issue" \
-            --body  "Routine Codex self-test cycle.")
-          NUM=$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')
-          echo "number=$NUM" >> "$GITHUB_OUTPUT"
+          cd ghp
 
-      # ------------------------------------------------------------------
-      # 2. Add to project
-      # ------------------------------------------------------------------
-      - name: Add issue to project
-        run: |
-          NUM="${{ steps.issue.outputs.number }}"
-
-          NODE=$(gh api graphql -f query='
-            query($owner:String!, $repo:String!, $num:Int!) {
-              repository(owner:$owner, name:$repo) {
-                issue(number:$num) { id }
-              }
-            }' \
-            -F owner="${GITHUB_REPOSITORY_OWNER}" \
-            -F repo="${GITHUB_REPOSITORY#*/}" \
-            -F num="$NUM")
-
-          ID=$(echo "$NODE" | grep -oE '"id":"[^"]+"' | sed 's/"id":"\(.*\)"/\1/')
-
-          gh api graphql -f query='
-            mutation($project:ID!, $item:ID!) {
-              addProjectV2ItemById(input:{projectId:$project, contentId:$item}) {
-                item { id }
-              }
-            }' \
-            -F project="$PROJECT_ID" \
-            -F item="$ID"
-
-      # ------------------------------------------------------------------
-      # 3. Close issue
-      # ------------------------------------------------------------------
-      - name: Close issue
-        run: |
-          gh issue close "${{ steps.issue.outputs.number }}" \
-            --comment "Codex self-test cycle successful."
-
-      # ------------------------------------------------------------------
-      # 4. Write telemetry
-      # ------------------------------------------------------------------
-      - name: Write telemetry
-        run: |
-          mkdir -p activity-telemetry
-          TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          N="${{ steps.issue.outputs.number }}"
-
-          printf '{\n'                                >  activity-telemetry/latest.json
-          printf '  "timestamp": "%s",\n' "$TS"      >> activity-telemetry/latest.json
-          printf '  "selftest_issue": %s,\n' "$N"    >> activity-telemetry/latest.json
-          printf '  "selftest_status": "success",\n' >> activity-telemetry/latest.json
-          printf '  "source": "codex-self-test"\n'   >> activity-telemetry/latest.json
-          printf '}\n'                               >> activity-telemetry/latest.json
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
 
           git add activity-telemetry/latest.json
-          git commit -m "Codex Self-Test Telemetry [skip ci]" || echo "no changes"
-          git push origin gh-pages || echo "push skipped"
 
-      # ------------------------------------------------------------------
-      # 5. Trigger merge workflow
-      # ------------------------------------------------------------------
-      - name: Trigger telemetry merge
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "[skip ci] Codex: self-test telemetry update"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" gh-pages
+
+      # ---------------------------------------------------------
+      # 9. Summary
+      # ---------------------------------------------------------
+      - name: Summary
         run: |
-          gh workflow run codex-telemetry-merge.yml || true
+          echo "---------------------------------------"
+          echo "Codex Self-Test completed successfully."
+          echo "Issue URL: ${{ steps.create_issue.outputs.issue_url }}"
+          echo "Telemetry stored at: gh-pages/activity-telemetry/latest.json"
+          echo "---------------------------------------"
