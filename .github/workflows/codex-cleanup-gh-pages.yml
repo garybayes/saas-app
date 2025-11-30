@@ -1,0 +1,117 @@
+# yamllint disable rule:truthy
+---
+name: Codex Cleanup gh-pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  clean-gh-pages:
+    name: Normalize gh-pages structure
+    runs-on: ubuntu-latest
+
+    steps:
+      # -------------------------------------------------------
+      # 1. Checkout repo with full history (required for gh-pages)
+      # -------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # -------------------------------------------------------
+      # 2. Fetch gh-pages and populate a work directory
+      # -------------------------------------------------------
+      - name: Load gh-pages branch
+        run: |
+          echo "Fetching gh-pages branch..."
+          git fetch origin gh-pages
+
+          echo "Preparing work directory..."
+          mkdir ghp
+          git --work-tree=ghp checkout origin/gh-pages -- .
+
+      # -------------------------------------------------------
+      # 3. Remove ALL legacy directories (safe + idempotent)
+      # -------------------------------------------------------
+      - name: Remove legacy telemetry directories
+        run: |
+          cd ghp
+
+          LEGACY_DIRS=(
+            "codex"
+            "codex-selftest"
+            "supervisor-telemetry"
+            "workflow-telemetry"
+            "telemetry"
+          )
+
+          for DIR in "${LEGACY_DIRS[@]}"; do
+            if [[ -d "$DIR" ]]; then
+              echo "Removing legacy directory: $DIR"
+              rm -rf "$DIR"
+            fi
+          done
+
+      # -------------------------------------------------------
+      # 4. Ensure the correct Codex directory structure exists
+      # -------------------------------------------------------
+      - name: Recreate required telemetry directories
+        run: |
+          cd ghp
+
+          REQUIRED_DIRS=(
+            "project-telemetry"
+            "activity-telemetry"
+            "dashboard"
+          )
+
+          for DIR in "${REQUIRED_DIRS[@]}"; do
+            if [[ ! -d "$DIR" ]]; then
+              echo "Creating directory: $DIR"
+              mkdir -p "$DIR"
+            else
+              echo "✔ Directory exists: $DIR"
+            fi
+          done
+
+      # -------------------------------------------------------
+      # 5. Ensure codex-data.json exists (create if missing)
+      # -------------------------------------------------------
+      - name: Ensure codex-data.json exists
+        run: |
+          cd ghp
+
+          if [[ ! -f "codex-data.json" ]]; then
+            echo "Creating empty codex-data.json"
+            echo "[]" > codex-data.json
+          else
+            echo "✔ codex-data.json already exists"
+          fi
+
+      # -------------------------------------------------------
+      # 6. Commit & push cleaned gh-pages state
+      # -------------------------------------------------------
+      - name: Commit cleaned structure
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd ghp
+
+          # Stage everything
+          git add -A
+
+          # If no changes, exit cleanly
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          # Commit & push
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+          git commit -m "[skip ci] Codex: cleanup gh-pages structure"
+          git push https://x-access-t
