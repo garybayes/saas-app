@@ -5,12 +5,11 @@ name: Codex Project Sync
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *"  # every 30 minutes
+    - cron: "*/30 * * * *"
 
-permissions:
+permissions:  # yamllint disable rule:truthy
   contents: read
   issues: write
-  pull-requests: write
 
 env:
   GH_TOKEN: ${{ secrets.GH_CI_PAT }}
@@ -23,10 +22,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout main
         uses: actions/checkout@v4
 
-      - name: Fetch all project items (with pagination)
+      - name: Fetch project items with pagination
         id: fetch
         run: |
           echo "Fetching project items with pagination..."
@@ -59,18 +58,17 @@ jobs:
           }'
 
           items=()
-          after_param=()   # empty array for first request (no after)
+          after_param=()
           has_next=true
 
           while $has_next; do
-          # Build dynamic arguments
             if [[ -z "${after_param[*]}" ]]; then
               json=$(gh api graphql -f project="$PROJECT_ID" -f query="$QUERY")
             else
               json=$(gh api graphql -f project="$PROJECT_ID" -f query="$QUERY" -f after="${after_param[0]}")
             fi
 
-            # Extract nodes
+            # Extract issue items
             new_nodes=$(echo "$json" | jq -c '.data.node.items.nodes[]?')
             if [[ -n "$new_nodes" ]]; then
               while IFS= read -r item; do
@@ -80,7 +78,7 @@ jobs:
 
             echo "Collected ${#items[@]} items so far..."
 
-            # Pagination state
+            # Pagination status
             has_next=$(echo "$json" | jq '.data.node.items.pageInfo.hasNextPage')
             end_cursor=$(echo "$json" | jq -r '.data.node.items.pageInfo.endCursor')
 
@@ -90,34 +88,37 @@ jobs:
           done
 
           echo "Total items collected: ${#items[@]}"
-          printf '%s\n' "${items[@]}" > project_items.json
-          echo "items_file=project_items.json" >> "$GITHUB_OUTPUT"          items=()
 
-      - name: Process project items and apply Codex labels
+          printf '%s\n' "${items[@]}" > project_items.json
+          echo "items_file=project_items.json" >> "$GITHUB_OUTPUT"
+
+      - name: Process project items and apply labels
         run: |
           FILE="${{ steps.fetch.outputs.items_file }}"
 
           if [[ ! -f "$FILE" ]]; then
-            echo "::error::No project items file found."
+            echo "::error::Project items file not found"
             exit 1
           fi
 
           echo "Processing project items..."
 
-          jq -c '.' "$FILE" | while read item; do
+          jq -c '.' "$FILE" | while read -r item; do
             issue_number=$(echo "$item" | jq -r '.content.number')
 
             if [[ "$issue_number" == "null" ]]; then
               continue
             fi
 
-            echo "Processing Issue #$issue_number..."
+            echo "Syncing Issue #$issue_number..."
 
-            # Determine labels based on milestones
-            LABEL_MAIN="codex-tracksprint"
-            LABEL_DASH="codex-trackdashboard"
+            # Apply core Codex label
+            gh issue edit "$issue_number" --add-label "codex" || true
 
-            # Apply labels
-            echo "Applying labels…"
-            gh issue edit "$issue_number" --add-label "$LABEL_MAIN" || true
-            gh issue edit "$issue_number" --add-lab_
+            # Apply track labels
+            gh issue edit "$issue_number" --add-label "codex-tracksprint" || true
+            gh issue edit "$issue_number" --add-label "codex-trackdashboard" || true
+          done
+
+      - name: Done
+        run: echo "Codex Project Sync Complete."
