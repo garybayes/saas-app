@@ -1,57 +1,93 @@
 async function loadTelemetry() {
-  const el = document.getElementById("container");
+  const url = "/codex-data.json"; // root-level telemetry file
 
   try {
-    const res = await fetch("../codex-data.json?" + Date.now());
-    if (!res.ok) throw new Error("Telemetry not found");
+    const response = await fetch(url, { cache: "no-store" });
 
-    const data = await res.json();
-
-    // Expecting object: { updated_at, supervisor, selftest }
-    if (!data || typeof data !== "object") {
-      el.innerHTML = "<p>Invalid telemetry format.</p>";
-      return;
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
     }
 
-    el.innerHTML = "";
-
-    // Render supervisor block
-    if (data.supervisor) {
-      el.innerHTML += `
-        <div class="entry">
-          <strong>Supervisor</strong><br>
-          <strong>Timestamp:</strong> ${data.supervisor.timestamp}<br>
-          <strong>Status:</strong> ${data.supervisor.status}<br>
-          <strong>Source:</strong> ${data.supervisor.source}<br>
-        </div>
-      `;
-    }
-
-    // Render self-test block
-    if (data.selftest) {
-      el.innerHTML += `
-        <div class="entry">
-          <strong>Self-Test</strong><br>
-          <strong>Timestamp:</strong> ${data.selftest.timestamp}<br>
-          <strong>Status:</strong> ${data.selftest.status}<br>
-          <strong>Issue:</strong> ${data.selftest.issue ?? "—"}<br>
-          <strong>Source:</strong> ${data.selftest.source}<br>
-        </div>
-      `;
-    }
-
-    // Render merged overview
-    el.innerHTML += `
-      <div class="entry">
-        <strong>Merged Dataset</strong><br>
-        <pre>${JSON.stringify(data, null, 2)}</pre>
-      </div>
-    `;
-
+    const data = await response.json();
+    renderDashboard(data);
   } catch (err) {
-    console.error(err);
-    el.innerHTML = "<p>Error loading telemetry.</p>";
+    console.error("Failed to load telemetry:", err);
+    document.getElementById("total-issues").innerText = "–";
   }
 }
 
+function renderDashboard(data) {
+  if (!Array.isArray(data)) {
+    console.warn("Invalid telemetry structure:", data);
+    return;
+  }
+
+  // Flatten all issues from all snapshots
+  const issues = [];
+  const events = [];
+
+  data.forEach(entry => {
+    if (entry.project && entry.project.items) {
+      entry.project.items.forEach(item => issues.push(item));
+    }
+
+    if (entry.activity && entry.activity.items) {
+      entry.activity.items.forEach(a => events.push(a));
+    }
+  });
+
+  // Deduplicate issues by ID or number
+  const deduped = {};
+  issues.forEach(i => {
+    if (i && i.number) deduped[i.number] = i;
+  });
+
+  const issueList = Object.values(deduped);
+
+  // Compute stats
+  const total = issueList.length;
+  const stale = issueList.filter(i => hasLabel(i, "stale")).length;
+  const escalated = issueList.filter(i => hasLabel(i, "needs-attention")).length;
+
+  // Render stats
+  document.getElementById("total-issues").innerText = total;
+  document.getElementById("stale-count").innerText = stale;
+  document.getElementById("escalated-count").innerText = escalated;
+
+  // Recent activity (sorted)
+  const sortedEvents = events
+    .filter(e => e && e.updatedAt)
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+    .slice(0, 20);
+
+  const eventList = document.getElementById("event-list");
+  eventList.innerHTML = "";
+
+  sortedEvents.forEach(ev => {
+    const li = document.createElement("li");
+    li.textContent = `#${ev.number}: ${ev.title} — updated ${timeAgo(ev.updatedAt)}`;
+    eventList.appendChild(li);
+  });
+
+  document.getElementById("recent-activity-count").innerText =
+    sortedEvents.length;
+}
+
+function hasLabel(issue, name) {
+  if (!issue || !issue.labels) return false;
+  return issue.labels.some(l => l.name === name);
+}
+
+function timeAgo(ts) {
+  const diff = (Date.now() - new Date(ts)) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+  if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+  return Math.floor(diff / 86400) + "d ago";
+}
+
+// Auto-refresh every 60 seconds
+setInterval(loadTelemetry, 60000);
+
+// Initial load
 loadTelemetry();
