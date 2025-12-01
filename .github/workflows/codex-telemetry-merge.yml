@@ -5,9 +5,9 @@ name: Codex Telemetry Merge
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *"  # Every 30 minutes
+    - cron: "*/30 * * * *"
 
-permissions:
+permissions:  # yamllint disable rule:truthy
   contents: write
 
 jobs:
@@ -28,23 +28,26 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Start with empty objects
-        id: init
-        run: |
-          echo '{}' > merged.json
+      - name: Init merged structure
+        run: echo '{}' > merged.json
 
       #######################################################################
-      # Extract latest SELF-TEST entry
+      # SELF-TEST MERGE
       #######################################################################
       - name: Merge self-test telemetry
         run: |
-          LATEST_SELFTEST=$(ls activity-telemetry/*.json 2>/dev/null | tail -n 1)
+          # Prefer latest.json
+          if [[ -f ghp/activity-telemetry/latest.json ]]; then
+            LATEST_SELFTEST="ghp/activity-telemetry/latest.json"
+          else
+            LATEST_SELFTEST=$(ls ghp/activity-telemetry/*.json 2>/dev/null | sort | tail -n 1)
+          fi
 
           if [[ -f "$LATEST_SELFTEST" ]]; then
-            echo "Using self-test file: $LATEST_SELFTEST"
+            echo "Using self-test telemetry: $LATEST_SELFTEST"
             SELF=$(jq -r '.selftest // empty' "$LATEST_SELFTEST")
 
-            # Handle array format: selftest: [...]
+            # Normalize array -> object
             if echo "$SELF" | jq -e 'type=="array"' >/dev/null 2>&1; then
               SELF=$(echo "$SELF" | jq '.[0]')
             fi
@@ -57,17 +60,21 @@ jobs:
           fi
 
       #######################################################################
-      # Extract latest SUPERVISOR entry
+      # SUPERVISOR MERGE
       #######################################################################
       - name: Merge supervisor telemetry
         run: |
-          LATEST_SUPERVISOR=$(ls project-telemetry/*.json 2>/dev/null | tail -n 1)
+          if [[ -f ghp/project-telemetry/latest.json ]]; then
+            LATEST_SUPERVISOR="ghp/project-telemetry/latest.json"
+          else
+            LATEST_SUPERVISOR=$(ls ghp/project-telemetry/*.json 2>/dev/null | sort | tail -n 1)
+          fi
 
           if [[ -f "$LATEST_SUPERVISOR" ]]; then
-            echo "Using supervisor file: $LATEST_SUPERVISOR"
+            echo "Using supervisor telemetry: $LATEST_SUPERVISOR"
             SUP=$(jq -r '.supervisor // empty' "$LATEST_SUPERVISOR")
 
-            # Handle array if needed
+            # Normalize array → object
             if echo "$SUP" | jq -e 'type=="array"' >/dev/null 2>&1; then
               SUP=$(echo "$SUP" | jq '.[0]')
             fi
@@ -80,19 +87,18 @@ jobs:
           fi
 
       #######################################################################
-      # Add updated_at timestamp
+      # ADD TIMESTAMP
       #######################################################################
-      - name: Add timestamp
+      - name: Add updated_at timestamp
         run: |
           TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
           jq --arg ts "$TS" '.updated_at = $ts' merged.json > final.json
           mv final.json merged.json
 
       #######################################################################
-      # Deploy to gh-pages root codex-data.json
+      # DEPLOY
       #######################################################################
-      - name: Commit & push
+      - name: Commit & push to gh-pages
         run: |
           cd ghp
 
@@ -101,7 +107,7 @@ jobs:
 
           cp ../merged.json codex-data.json
 
-          git add -A
+          git add codex-data.json
 
           if git diff --cached --quiet; then
             echo "No telemetry changes to commit."
