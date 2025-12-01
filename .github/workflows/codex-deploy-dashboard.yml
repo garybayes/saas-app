@@ -1,80 +1,82 @@
----
 # yamllint disable rule:truthy
-name: Codex – Deploy Dashboard
+---
+name: Deploy Codex Dashboard
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - main
     paths:
       - "codex/dashboard/**"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   deploy:
+    name: Deploy Codex Dashboard to gh-pages
     runs-on: ubuntu-latest
 
+    env:
+      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+
     steps:
-      # -------------------------------------------------------------
-      # 1. Checkout main → repo-main
-      # -------------------------------------------------------------
-      - name: Checkout main
+      # -----------------------------------------------------------
+      # 1. Checkout main (dashboard source)
+      # -----------------------------------------------------------
+      - name: Checkout main branch
         uses: actions/checkout@v4
         with:
-          ref: main
-          path: repo-main
-          fetch-depth: 1
+          fetch-depth: 0
 
-      # -------------------------------------------------------------
-      # 2. Checkout gh-pages → repo-pages
-      # -------------------------------------------------------------
+      # -----------------------------------------------------------
+      # 2. Checkout gh-pages separately
+      # -----------------------------------------------------------
       - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
-          path: repo-pages
-          fetch-depth: 1
+          path: ghp
+          fetch-depth: 0
 
-      # -------------------------------------------------------------
-      # 3. Replace dashboard folder completely
-      # -------------------------------------------------------------
-      - name: Replace dashboard
+      # -----------------------------------------------------------
+      # 3. Ensure required directories exist
+      # -----------------------------------------------------------
+      - name: Prepare directory structure
         run: |
-          set -e
+          cd ghp
+          mkdir -p dashboard
+          cp ../codex/dashboard/* dashboard/
 
-          rm -rf repo-pages/dashboard
-          mkdir -p repo-pages/dashboard
+          # Ensure .nojekyll exists for static sites
+          touch .nojekyll
 
-          cp -R repo-main/codex/dashboard/* repo-pages/dashboard/
-
-      # -------------------------------------------------------------
-      # 4. Commit & push ONLY if changed
-      # -------------------------------------------------------------
-      - name: Commit dashboard changes
+      # -----------------------------------------------------------
+      # 4. Commit and push if changes exist
+      # -----------------------------------------------------------
+      - name: Commit and push changes
         run: |
-          cd repo-pages
+          cd ghp
 
-          git config --global user.name  "codex-ci-bot"
-          git config --global user.email "codex-ci-bot@users.noreply.github.com"
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
 
-          git add dashboard/
+          git add -A
 
           if git diff --cached --quiet; then
-            echo "No dashboard changes detected."
+            echo "No dashboard changes to deploy."
             exit 0
           fi
 
-          git commit -m "Deploy Codex Dashboard v2.x [skip ci]"
+          git commit -m "[skip ci] Update Codex dashboard"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/garybayes/saas-app.git" gh-pages
 
-          for i in 1 2 3; do
-            if git push origin gh-pages; then
-              echo "Dashboard deploy push succeeded."
-              break
-            fi
-
-            echo "Dashboard deploy failed — retrying…"
-            git pull --rebase origin gh-pages || git rebase --abort
-          done
+      # -----------------------------------------------------------
+      # 5. Summary
+      # -----------------------------------------------------------
+      - name: Deployment Summary
+        run: |
+          echo "---------------------------------------"
+          echo "Codex Dashboard Deployment Completed"
+          echo "---------------------------------------"
