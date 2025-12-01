@@ -1,32 +1,68 @@
 # yamllint disable rule:truthy
 ---
-name: Codex Cleanup gh-pages
+name: Codex Cleanup (gh-pages)
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "15 */6 * * *"  # every 6 hours
 
 permissions:
   contents: write
 
 jobs:
-  clean-gh-pages:
-    name: Normalize gh-pages structure
+  cleanup:
+    name: Clean gh-pages structure
     runs-on: ubuntu-latest
 
     steps:
-      # -------------------------------------------------------
-      # 1. Checkout gh-pages as a real branch
-      # -------------------------------------------------------
-      - name: Checkout gh-pages branch
+      # -----------------------------------------------------------
+      # 1. Checkout gh-pages branch
+      # -----------------------------------------------------------
+      - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           fetch-depth: 0
 
-      # -------------------------------------------------------
-      # 2. Remove legacy directories
-      # -------------------------------------------------------
-      - name: Remove legacy telemetry directories
+      # -----------------------------------------------------------
+      # 2. Required directories (must exist)
+      # -----------------------------------------------------------
+      - name: Ensure required directories exist
+        run: |
+          REQUIRED_DIRS=(
+            "dashboard"
+            "project-telemetry"
+            "activity-telemetry"
+          )
+
+          for DIR in "${REQUIRED_DIRS[@]}"; do
+            if [[ ! -d "$DIR" ]]; then
+              echo "Creating missing directory: $DIR"
+              mkdir -p "$DIR"
+            else
+              echo "✔ Directory exists: $DIR"
+            fi
+          done
+
+      # -----------------------------------------------------------
+      # 3. Ensure .gitkeep files inside telemetry dirs
+      # -----------------------------------------------------------
+      - name: Ensure .gitkeep inside telemetry directories
+        run: |
+          for DIR in "project-telemetry" "activity-telemetry"; do
+            if [[ ! -f "$DIR/.gitkeep" ]]; then
+              echo "Adding .gitkeep to: $DIR"
+              touch "$DIR/.gitkeep"
+            else
+              echo "✔ $DIR/.gitkeep exists"
+            fi
+          done
+
+      # -----------------------------------------------------------
+      # 4. Remove ALL legacy Codex directories everywhere
+      # -----------------------------------------------------------
+      - name: Remove legacy Codex directories
         run: |
           LEGACY_DIRS=(
             "codex"
@@ -34,6 +70,7 @@ jobs:
             "supervisor-telemetry"
             "workflow-telemetry"
             "telemetry"
+            "telemetry-old"
           )
 
           for DIR in "${LEGACY_DIRS[@]}"; do
@@ -43,48 +80,34 @@ jobs:
             fi
           done
 
-      # -------------------------------------------------------
-      # 3. Ensure required directories exist
-      # -------------------------------------------------------
-      - name: Recreate required directories
-        run: |
-          REQUIRED_DIRS=(
-            "project-telemetry"
-            "activity-telemetry"
-            "dashboard"
-          )
-
-          for DIR in "${REQUIRED_DIRS[@]}"; do
-            if [[ ! -d "$DIR" ]]; then
-              echo "Creating directory: $DIR"
-              mkdir -p "$DIR"
-            else
-              echo "✔ Directory exists: $DIR"
-            fi
-          done
-          # Create .gitkeep files so directories are committed
-          for DIR in "${REQUIRED_DIRS[@]}"; do
-            if [[ ! -f "$DIR/.gitkeep" ]]; then
-              touch "$DIR/.gitkeep"
-            fi
-          done
-
-      # -------------------------------------------------------
-      # 4. Ensure codex-data.json exists
-      # -------------------------------------------------------
+      # -----------------------------------------------------------
+      # 5. Ensure codex-data.json exists at *root*
+      # -----------------------------------------------------------
       - name: Ensure codex-data.json exists
         run: |
           if [[ ! -f "codex-data.json" ]]; then
             echo "Creating empty codex-data.json"
             echo "[]" > codex-data.json
           else
-            echo "✔ codex-data.json already exists"
+            echo "✔ codex-data.json exists"
           fi
 
-      # -------------------------------------------------------
-      # 5. Commit & push changes
-      # -------------------------------------------------------
-      - name: Commit and push changes
+      # -----------------------------------------------------------
+      # 6. Ensure .nojekyll exists
+      # -----------------------------------------------------------
+      - name: Ensure .nojekyll exists
+        run: |
+          if [[ ! -f ".nojekyll" ]]; then
+            echo "Creating .nojekyll"
+            touch .nojekyll
+          else
+            echo "✔ .nojekyll exists"
+          fi
+
+      # -----------------------------------------------------------
+      # 7. Commit & push changes
+      # -----------------------------------------------------------
+      - name: Commit and push cleanup
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -101,9 +124,9 @@ jobs:
           git commit -m "[skip ci] Codex: cleanup gh-pages structure"
           git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" gh-pages
 
-      # -------------------------------------------------------
-      # 6. Summary
-      # -------------------------------------------------------
+      # -----------------------------------------------------------
+      # 8. Summary
+      # -----------------------------------------------------------
       - name: Summary
         run: |
           echo "-----------------------------------------"
