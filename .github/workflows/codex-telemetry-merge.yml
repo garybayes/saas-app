@@ -76,20 +76,26 @@ jobs:
       # -----------------------------------------------------------
       - name: Merge telemetry JSON
         run: |
-          # Start with empty array
           echo "[]" > codex-data.json
 
           if [[ ! -s merged/all.jsonlist ]]; then
-            echo "No telemetry files found; codex-data.json remains empty array."
-          else
-            while IFS= read -r FILE; do
-              echo "Merging: $FILE"
-              jq -s '.[0] + .[1]' codex-data.json "$FILE" > codex-data.tmp
-              mv codex-data.tmp codex-data.json
-            done < merged/all.jsonlist
+            echo "No telemetry found. Leaving codex-data.json as empty array."
+            exit 0
           fi
 
-          echo "Final codex-data.json content:"
+          # Merge each telemetry file as array elements
+          while IFS= read -r FILE; do
+            echo "Merging: $FILE"
+
+            # Wrap telemetry object into a list element: [{...}]
+            WRAPPED=$(jq -c '[.]' "$FILE")
+
+            # Combine arrays
+            jq -s 'add' <(echo "$WRAPPED") codex-data.json > codex-data.tmp
+            mv codex-data.tmp codex-data.json
+          done < merged/all.jsonlist
+
+          echo "Merged codex-data.json:"
           cat codex-data.json
 
       # -----------------------------------------------------------
