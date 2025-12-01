@@ -1,5 +1,5 @@
-# yamllint disable rule:truthy
 ---
+# yamllint disable rule:truthy
 name: Codex Project Sync
 
 on:
@@ -7,7 +7,7 @@ on:
   schedule:
     - cron: "*/30 * * * *"
 
-permissions:  # yamllint disable rule:truthy
+permissions:
   contents: read
   issues: write
 
@@ -68,7 +68,7 @@ jobs:
               json=$(gh api graphql -f project="$PROJECT_ID" -f query="$QUERY" -f after="${after_param[0]}")
             fi
 
-            # Extract issue items
+            # Extract items
             new_nodes=$(echo "$json" | jq -c '.data.node.items.nodes[]?')
             if [[ -n "$new_nodes" ]]; then
               while IFS= read -r item; do
@@ -78,7 +78,7 @@ jobs:
 
             echo "Collected ${#items[@]} items so far..."
 
-            # Pagination status
+            # Pagination
             has_next=$(echo "$json" | jq '.data.node.items.pageInfo.hasNextPage')
             end_cursor=$(echo "$json" | jq -r '.data.node.items.pageInfo.endCursor')
 
@@ -92,12 +92,12 @@ jobs:
           printf '%s\n' "${items[@]}" > project_items.json
           echo "items_file=project_items.json" >> "$GITHUB_OUTPUT"
 
-      - name: Process project items and apply labels
+      - name: Apply Codex labels based on milestone
         run: |
           FILE="${{ steps.fetch.outputs.items_file }}"
 
           if [[ ! -f "$FILE" ]]; then
-            echo "::error::Project items file not found"
+            echo "::error::project_items.json not found"
             exit 1
           fi
 
@@ -110,14 +110,29 @@ jobs:
               continue
             fi
 
-            echo "Syncing Issue #$issue_number..."
+            echo "Processing Issue #$issue_number..."
 
-            # Apply core Codex label
+            # Always apply master Codex label
             gh issue edit "$issue_number" --add-label "codex" || true
 
-            # Apply track labels
-            gh issue edit "$issue_number" --add-label "codex-tracksprint" || true
-            gh issue edit "$issue_number" --add-label "codex-trackdashboard" || true
+            # Get milestone title
+            MILESTONE=$(gh issue view "$issue_number" --json milestone --jq '.milestone.title')
+
+            if [[ "$MILESTONE" == "${MAIN_MILESTONE}" ]]; then
+              echo " → Sprint track"
+              gh issue edit "$issue_number" --add-label "codex-tracksprint" || true
+              gh issue edit "$issue_number" --remove-label "codex-trackdashboard" || true
+
+            elif [[ "$MILESTONE" == "${DASHBOARD_MILESTONE}" ]]; then
+              echo " → Dashboard track"
+              gh issue edit "$issue_number" --add-label "codex-trackdashboard" || true
+              gh issue edit "$issue_number" --remove-label "codex-tracksprint" || true
+
+            else
+              echo " → No milestone → Codex only"
+              gh issue edit "$issue_number" --remove-label "codex-tracksprint" || true
+              gh issue edit "$issue_number" --remove-label "codex-trackdashboard" || true
+            fi
           done
 
       - name: Done
