@@ -20,7 +20,7 @@ jobs:
       CODEX_PROJECT_URL: ${{ vars.CODEX_PROJECT_URL }}
       CODEX_PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
       CODEX_PROJECT_NUMBER: ${{ vars.CODEX_PROJECT_NUMBER }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
     steps:
       # ---------------------------------------------------------
