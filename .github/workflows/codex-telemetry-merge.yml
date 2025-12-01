@@ -5,125 +5,110 @@ name: Codex Telemetry Merge
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 * * * *"  # hourly merge to keep telemetry fresh
+    - cron: "*/30 * * * *"  # Every 30 minutes
 
 permissions:
   contents: write
 
 jobs:
   merge:
-    name: Merge Codex telemetry into codex-data.json
     runs-on: ubuntu-latest
 
     steps:
-      # -----------------------------------------------------------
-      # 1. Checkout gh-pages as the working branch
-      # -----------------------------------------------------------
-      - name: Checkout gh-pages
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
-          ref: gh-pages
           fetch-depth: 0
 
-      # -----------------------------------------------------------
-      # 2. Install jq for JSON processing
-      # -----------------------------------------------------------
+      - name: Checkout gh-pages
+        run: |
+          git fetch origin gh-pages
+          git worktree add ghp gh-pages
+
       - name: Install jq
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
+        run: sudo apt-get update && sudo apt-get install -y jq
 
-      # -----------------------------------------------------------
-      # 3. Ensure telemetry directories exist (tolerant merge)
-      #    Diagnostics workflow is responsible for strict checks;
-      #    here we just warn and continue with whatever exists.
-      # -----------------------------------------------------------
-      - name: Verify telemetry directories
+      - name: Start with empty objects
+        id: init
         run: |
-          for DIR in "project-telemetry" "activity-telemetry"; do
-            if [[ -d "$DIR" ]]; then
-              echo "✔ Found telemetry directory: $DIR"
-            else
-              echo "::warning::Telemetry directory missing (will be treated as empty): $DIR"
+          echo '{}' > merged.json
+
+      #######################################################################
+      # Extract latest SELF-TEST entry
+      #######################################################################
+      - name: Merge self-test telemetry
+        run: |
+          LATEST_SELFTEST=$(ls activity-telemetry/*.json 2>/dev/null | tail -n 1)
+
+          if [[ -f "$LATEST_SELFTEST" ]]; then
+            echo "Using self-test file: $LATEST_SELFTEST"
+            SELF=$(jq -r '.selftest // empty' "$LATEST_SELFTEST")
+
+            # Handle array format: selftest: [...]
+            if echo "$SELF" | jq -e 'type=="array"' >/dev/null 2>&1; then
+              SELF=$(echo "$SELF" | jq '.[0]')
             fi
-          done
 
-      # -----------------------------------------------------------
-      # 4. Collect telemetry JSON files from both directories
-      # -----------------------------------------------------------
-      - name: Gather telemetry files
-        run: |
-          echo "Collecting telemetry files from project-telemetry/ and activity-telemetry/..."
-
-          mkdir -p merged
-          > merged/all.jsonlist
-
-          if [[ -d "project-telemetry" ]]; then
-            find project-telemetry -maxdepth 1 -name "*.json" >> merged/all.jsonlist || true
+            echo "$SELF" > tmp_self.json
+            jq '.selftest = input' merged.json tmp_self.json > out.json
+            mv out.json merged.json
+          else
+            echo "No self-test telemetry found"
           fi
 
-          if [[ -d "activity-telemetry" ]]; then
-            find activity-telemetry -maxdepth 1 -name "*.json" >> merged/all.jsonlist || true
+      #######################################################################
+      # Extract latest SUPERVISOR entry
+      #######################################################################
+      - name: Merge supervisor telemetry
+        run: |
+          LATEST_SUPERVISOR=$(ls project-telemetry/*.json 2>/dev/null | tail -n 1)
+
+          if [[ -f "$LATEST_SUPERVISOR" ]]; then
+            echo "Using supervisor file: $LATEST_SUPERVISOR"
+            SUP=$(jq -r '.supervisor // empty' "$LATEST_SUPERVISOR")
+
+            # Handle array if needed
+            if echo "$SUP" | jq -e 'type=="array"' >/dev/null 2>&1; then
+              SUP=$(echo "$SUP" | jq '.[0]')
+            fi
+
+            echo "$SUP" > tmp_super.json
+            jq '.supervisor = input' merged.json tmp_super.json > out.json
+            mv out.json merged.json
+          else
+            echo "No supervisor telemetry found"
           fi
 
-          echo "Telemetry files to merge:"
-          cat merged/all.jsonlist || echo "(none found)"
-
-      # -----------------------------------------------------------
-      # 5. Merge telemetry JSON into codex-data.json at repo root
-      #    - No codex/ prefix
-      #    - Root file must be gh-pages:/codex-data.json
-      # -----------------------------------------------------------
-      - name: Merge telemetry JSON
+      #######################################################################
+      # Add updated_at timestamp
+      #######################################################################
+      - name: Add timestamp
         run: |
-          echo "[]" > codex-data.json
+          TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          if [[ ! -s merged/all.jsonlist ]]; then
-            echo "No telemetry found. Leaving codex-data.json as empty array."
-            exit 0
-          fi
+          jq --arg ts "$TS" '.updated_at = $ts' merged.json > final.json
+          mv final.json merged.json
 
-          # Merge each telemetry file as array elements
-          while IFS= read -r FILE; do
-            echo "Merging: $FILE"
-
-            # Wrap telemetry object into a list element: [{...}]
-            WRAPPED=$(jq -c '[.]' "$FILE")
-
-            # Combine arrays
-            jq -s 'add' <(echo "$WRAPPED") codex-data.json > codex-data.tmp
-            mv codex-data.tmp codex-data.json
-          done < merged/all.jsonlist
-
-          echo "Merged codex-data.json:"
-          cat codex-data.json
-
-      # -----------------------------------------------------------
-      # 6. Commit & push changes to gh-pages
-      # -----------------------------------------------------------
-      - name: Commit and push merged telemetry
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #######################################################################
+      # Deploy to gh-pages root codex-data.json
+      #######################################################################
+      - name: Commit & push
         run: |
+          cd ghp
+
           git config user.email "actions@github.com"
           git config user.name "GitHub Actions"
 
-          git add codex-data.json
+          cp ../merged.json codex-data.json
+
+          git add -A
 
           if git diff --cached --quiet; then
             echo "No telemetry changes to commit."
             exit 0
           fi
 
-          git commit -m "[skip ci] Codex: merged telemetry update"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" gh-pages
-
-      # -----------------------------------------------------------
-      # 7. Summary
-      # -----------------------------------------------------------
-      - name: Summary
-        run: |
-          echo "-----------------------------------------"
-          echo "Codex Telemetry Merge completed."
-          echo "Updated gh-pages:/codex-data.json"
-          echo "-----------------------------------------"
+          git commit -m "[skip ci] Merge Codex telemetry"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
