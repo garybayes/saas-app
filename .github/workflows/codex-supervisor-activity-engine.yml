@@ -1,10 +1,10 @@
----
 # yamllint disable rule:truthy
-name: Codex – Activity Engine
+---
+name: Codex Activity Engine Supervisor
 
 on:
   schedule:
-    - cron: "*/20 * * * *"
+    - cron: "15 */6 * * *"   # Offset from dual-track by 15 minutes
   workflow_dispatch:
 
 permissions:
@@ -13,76 +13,110 @@ permissions:
   repository-projects: write
 
 jobs:
-  activity-engine:
+  activity:
+    name: Codex Activity Engine
     runs-on: ubuntu-latest
 
     env:
       GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-      REPO: ${{ github.repository }}
       ACTIVITY_STALE: ${{ vars.CODEX_ACTIVITY_STALE_DAYS }}
-      ACTIVITY_ESC: ${{ vars.CODEX_ACTIVITY_ESCALATE_DAYS }}
+      ACTIVITY_ESCALATE: ${{ vars.CODEX_ACTIVITY_ESCALATE_DAYS }}
 
     steps:
-      - name: Start Activity Engine
-        run: |
-          echo "Codex Activity Engine starting…"
-          gh --version
+      # -----------------------------------------------------------
+      # 1. Setup
+      # -----------------------------------------------------------
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      # -------------------------------------------------------------
-      # 1. Get all open issues with activity label
-      # -------------------------------------------------------------
-      - name: Fetch issues
+      - name: Install jq & GNU date support
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq coreutils
+
+      # -----------------------------------------------------------
+      # 2. Fetch all open issues (not milestone-limited)
+      # -----------------------------------------------------------
+      - name: Fetch all open issues
         id: fetch
         run: |
-          ISSUES=$(gh issue list --state open --label "activity" --json number,title,updatedAt,url)
-          echo "$ISSUES" > activity.json
+          echo "Fetching all open issues..."
 
-          COUNT=$(echo "$ISSUES" | jq 'length')
-          echo "count=$COUNT" >> $GITHUB_OUTPUT
+          gh issue list \
+            --state open \
+            --limit 200 \
+            --json number,title,updatedAt,createdAt,labels \
+            > issues.json
 
-      # -------------------------------------------------------------
-      # 2. Apply stale/escalation logic
-      # -------------------------------------------------------------
-      - name: Process activity issues
+          echo "issues_json=issues.json" >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------
+      # 3. Process activity-based stale/escalation
+      # -----------------------------------------------------------
+      - name: Activity Logic
+        id: activity
         run: |
-          NOW=$(date -u +%s)
+          FILE="${{ steps.fetch.outputs.issues_json }}"
 
-          jq '.[]' activity.json | while read -r ITEM; do
-            NUM=$(echo "$ITEM" | jq '.number')
-            UPDATED=$(echo "$ITEM" | jq -r '.updatedAt')
-            URL=$(echo "$ITEM" | jq -r '.url')
+          echo "Processing activity-based stale/escalation rules..."
+          ISSUES=$(jq -c '.[]' "$FILE")
 
-            UPDATED_TS=$(date -u -d "$UPDATED" +%s)
-            AGE_DAYS=$(( (NOW - UPDATED_TS) / 86400 ))
+          NOW_TS=$(date +%s)
 
-            echo "Activity Issue #$NUM | Age: ${AGE_DAYS} days | $URL"
+          while IFS= read -r ISSUE; do
+            NUM=$(jq -r '.number' <<< "$ISSUE")
+            TITLE=$(jq -r '.title' <<< "$ISSUE")
+            UPDATED=$(jq -r '.updatedAt' <<< "$ISSUE")
+            LABELS=$(jq -r '.labels[].name' <<< "$ISSUE" || true)
 
-            if [ "$AGE_DAYS" -ge "$ACTIVITY_ESC" ]; then
-              gh issue comment "$NUM" --body "[Activity Engine] Escalated after $ACTIVITY_ESC days."
-              gh issue edit "$NUM" --add-label "codex:escalated"
-            elif [ "$AGE_DAYS" -ge "$ACTIVITY_STALE" ]; then
-              gh issue comment "$NUM" --body "[Activity Engine] Stale after $ACTIVITY_STALE days."
-              gh issue edit "$NUM" --add-label "codex:stale"
+            UPDATED_TS=$(date -d "$UPDATED" +%s)
+            DIFF_DAYS=$(( (NOW_TS - UPDATED_TS) / 86400 ))
+
+            echo "#$NUM — $TITLE (updated $DIFF_DAYS days ago)"
+
+            # -------------------------------
+            # Stale threshold
+            # -------------------------------
+            if [[ $DIFF_DAYS -ge $ACTIVITY_STALE && $DIFF_DAYS -lt $ACTIVITY_ESCALATE ]]; then
+              if [[ "$LABELS" != *"stale"* ]]; then
+                echo "  → Marking stale"
+                gh issue edit "$NUM" --add-label "stale"
+                gh issue comment "$NUM" --body "⏳ This issue has been marked **stale** due to inactivity ($DIFF_DAYS days)."
+              fi
             fi
-          done
 
-      # -------------------------------------------------------------
-      # 3. Emit telemetry
-      # -------------------------------------------------------------
-      - name: Write telemetry
+            # -------------------------------
+            # Escalation threshold
+            # -------------------------------
+            if [[ $DIFF_DAYS -ge $ACTIVITY_ESCALATE ]]; then
+              if [[ "$LABELS" != *"needs-attention"* ]]; then
+                echo "  → Escalating"
+                gh issue edit "$NUM" --add-label "needs-attention"
+                gh issue comment "$NUM" --body "🚨 This issue requires **attention** — no updates for $DIFF_DAYS days."
+              fi
+            fi
+
+          done <<< "$ISSUES"
+
+      # -----------------------------------------------------------
+      # 4. Write activity telemetry snapshot
+      # -----------------------------------------------------------
+      - name: Write activity telemetry snapshot
         run: |
-          mkdir -p codex-telemetry
-          TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          TS=$(date +%s)
+          OUT_DIR="activity-telemetry"
+          OUT="$OUT_DIR/activity-$TS.json"
 
-          printf '{\n'                         >  codex-telemetry/activity.json
-          printf '  "timestamp": "%s",\n' "$TS" >> codex-telemetry/activity.json
-          printf '  "activity_count": %s,\n' "${{ steps.fetch.outputs.count }}" >> codex-telemetry/activity.json
-          printf '  "source": "activity-engine"\n' >> codex-telemetry/activity.json
-          printf '}\n'                       >> codex-telemetry/activity.json
+          mkdir -p "$OUT_DIR"
+          cp issues.json "$OUT"
 
-      # -------------------------------------------------------------
-      # 4. Trigger telemetry merge
-      # -------------------------------------------------------------
-      - name: Trigger telemetry merge
+          echo "Telemetry written: $OUT"
+
+      # -----------------------------------------------------------
+      # 5. Summary
+      # -----------------------------------------------------------
+      - name: Activity Summary
         run: |
-          gh workflow run codex-telemetry-merge.yml || true
+          echo "---------------------------------------"
+          echo "Codex Activity Engine Supervisor Completed"
+          echo "---------------------------------------"
