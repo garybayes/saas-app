@@ -1,11 +1,3 @@
-[
-  {
-    "selftest": [
-      {
-        "timestamp": "2025-12-01T00:36:16Z",
-        "status": "ok",
-        "issue": "https://github.com/garybayes/saas-app/issues/115"
-      }
-    ]
-  }
-]
+{
+  "updated_at": "2025-12-01T03:24:00Z"
+}
