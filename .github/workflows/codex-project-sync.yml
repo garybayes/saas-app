@@ -13,6 +13,7 @@ permissions:
   pull-requests: write
 
 env:
+  GH_TOKEN: ${{ secrets.GH_CI_PAT }}
   PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
   MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
   DASHBOARD_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
