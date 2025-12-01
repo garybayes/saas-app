@@ -3,62 +3,51 @@
 name: Codex Project Sync
 
 on:
-  schedule:
-    - cron: "*/30 * * * *"   # Every 30 minutes
   workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"  # every 30 minutes
 
 permissions:
-  contents: write
+  contents: read
   issues: write
-  repository-projects: write
+  pull-requests: write
+
+env:
+  PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
+  MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
+  DASHBOARD_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
 
 jobs:
   sync:
-    name: Sync Issues with Codex Project Board
     runs-on: ubuntu-latest
 
-    env:
-      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-      PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
-      PROJECT_NUMBER: ${{ vars.CODEX_PROJECT_NUMBER }}
-      MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
-      DASHBOARD_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
-
     steps:
-      # -----------------------------------------------------------
-      # 1. Setup
-      # -----------------------------------------------------------
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install jq
+      - name: Fetch all project items (with pagination)
+        id: fetch
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
+          echo "Fetching project items with pagination..."
 
-      # -----------------------------------------------------------
-      # 2. Pull all project items
-      # -----------------------------------------------------------
-      - name: Fetch project items from API
-        id: project
-        run: |
-          echo "Querying project items..."
-
-          JSON=$(gh api graphql -f query='
-            query($id: ID!) {
-              node(id: $id) {
-                ... on ProjectV2 {
-                  items(first: 200) {
-                    nodes {
-                      id
-                      content {
-                        ... on Issue {
-                          number
-                          title
-                          milestone { title }
-                          labels(first: 20) {
-                            nodes { name }
-                          }
+          QUERY='
+          query($project: ID!, $after: String) {
+            node(id: $project) {
+              ... on ProjectV2 {
+                items(first: 100, after: $after) {
+                  pageInfo {
+                    hasNextPage
+                    endCursor
+                  }
+                  nodes {
+                    id
+                    content {
+                      __typename
+                      ... on Issue {
+                        number
+                        title
+                        labels(first: 20) {
+                          nodes { name }
                         }
                       }
                     }
@@ -66,97 +55,62 @@ jobs:
                 }
               }
             }
-          ' -f id="$PROJECT_ID")
+          }'
 
-          echo "$JSON" > project.json
-          echo "project_json=project.json" >> "$GITHUB_OUTPUT"
+          items=()
+          after="null"
 
-      # -----------------------------------------------------------
-      # 3. Iterate over items and verify consistency
-      # -----------------------------------------------------------
-      - name: Process project items
-        id: validation
+          while true; do
+            json=$(gh api graphql -f project="$PROJECT_ID" -f after="$after" -f query="$QUERY")
+
+            # Extract nodes
+            new_nodes=$(echo "$json" | jq -c '.data.node.items.nodes[]?')
+            if [[ -n "$new_nodes" ]]; then
+              while IFS= read -r item; do
+                items+=("$item")
+              done <<< "$new_nodes"
+            fi
+
+            hasNext=$(echo "$json" | jq '.data.node.items.pageInfo.hasNextPage')
+            after=$(echo "$json" | jq -r '.data.node.items.pageInfo.endCursor')
+
+            echo "Collected ${#items[@]} items so far..."
+
+            if [[ "$hasNext" != "true" ]]; then
+              break
+            fi
+          done
+
+          echo "Total items collected: ${#items[@]}"
+
+          printf '%s\n' "${items[@]}" > project_items.json
+          echo "items_file=project_items.json" >> $GITHUB_OUTPUT
+
+      - name: Process project items and apply Codex labels
         run: |
-          FILE="${{ steps.project.outputs.project_json }}"
+          FILE="${{ steps.fetch.outputs.items_file }}"
 
-          echo "Validating project items..."
+          if [[ ! -f "$FILE" ]]; then
+            echo "::error::No project items file found."
+            exit 1
+          fi
 
-          ITEMS=$(jq -c '.data.node.items.nodes[]' "$FILE")
+          echo "Processing project items..."
 
-          MISSING_COUNT=0
-          FIXED_COUNT=0
+          jq -c '.' "$FILE" | while read item; do
+            issue_number=$(echo "$item" | jq -r '.content.number')
 
-          while IFS= read -r ITEM; do
-            ISSUE=$(jq -r '.content.number' <<< "$ITEM")
-
-            if [[ "$ISSUE" == "null" ]]; then
-              echo "→ Found non-issue project item. Removing..."
-              ITEM_ID=$(jq -r '.id' <<< "$ITEM")
-
-              gh api graphql -f query='
-                mutation($id: ID!) {
-                  deleteProjectV2Item(input: {itemId: $id}) {
-                    deletedItemId
-                  }
-                }
-              ' -f id="$ITEM_ID"
-
+            if [[ "$issue_number" == "null" ]]; then
               continue
             fi
 
-            TITLE=$(jq -r '.content.title' <<< "$ITEM")
-            MILESTONE=$(jq -r '.content.milestone.title // empty' <<< "$ITEM")
+            echo "Processing Issue #$issue_number..."
 
-            LABELS=$(jq -r '.content.labels.nodes[].name' <<< "$ITEM" || true)
+            # Determine labels based on milestones
+            LABEL_MAIN="codex-tracksprint"
+            LABEL_DASH="codex-trackdashboard"
 
-            echo "Issue #$ISSUE — $TITLE"
-            echo "  Milestone: $MILESTONE"
-            echo "  Labels: $LABELS"
-
-            # ---------------------------------------
-            # Ensure required labels exist
-            # ---------------------------------------
-            if [[ "$MILESTONE" == "$MAIN_MILESTONE" && "$LABELS" != *"main-track"* ]]; then
-              echo "  → Adding missing main-track label"
-              gh issue edit "$ISSUE" --add-label "main-track"
-              ((FIXED_COUNT++))
-            fi
-
-            if [[ "$MILESTONE" == "$DASHBOARD_MILESTONE" && "$LABELS" != *"dashboard-track"* ]]; then
-              echo "  → Adding missing dashboard-track label"
-              gh issue edit "$ISSUE" --add-label "dashboard-track"
-              ((FIXED_COUNT++))
-            fi
-
-            if [[ "$LABELS" != *"codex"* ]]; then
-              echo "  → Adding missing codex label"
-              gh issue edit "$ISSUE" --add-label "codex"
-              ((FIXED_COUNT++))
-            fi
-
-          done <<< "$ITEMS"
-
-          echo "fixed=$FIXED_COUNT" >> "$GITHUB_OUTPUT"
-          echo "missing=$MISSING_COUNT" >> "$GITHUB_OUTPUT"
-
-      # -----------------------------------------------------------
-      # 4. Write telemetry snapshot
-      # -----------------------------------------------------------
-      - name: Write project telemetry snapshot
-        run: |
-          SNAPSHOT="project-telemetry/project-$(date +%s).json"
-          mkdir -p project-telemetry
-
-          jq '.' project.json > "$SNAPSHOT"
-
-          echo "Created telemetry: $SNAPSHOT"
-
-      # -----------------------------------------------------------
-      # 5. Summary
-      # -----------------------------------------------------------
-      - name: Sync Summary
-        run: |
-          echo "---------------------------------------"
-          echo "Codex Project Sync Completed"
-          echo "Fixed labels: ${{ steps.validation.outputs.fixed }}"
-          echo "---------------------------------------"
+            # Apply labels
+            echo "Applying labels…"
+            gh issue edit "$issue_number" --add-label "$LABEL_MAIN" || true
+            gh issue edit "$issue_number" --add-lab_
