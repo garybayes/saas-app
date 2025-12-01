@@ -59,10 +59,16 @@ jobs:
           }'
 
           items=()
-          after="null"
+          after_param=()   # empty array for first request (no after)
+          has_next=true
 
-          while true; do
-            json=$(gh api graphql -f project="$PROJECT_ID" -f after="$after" -f query="$QUERY")
+          while $has_next; do
+          # Build dynamic arguments
+            if [[ -z "${after_param[*]}" ]]; then
+              json=$(gh api graphql -f project="$PROJECT_ID" -f query="$QUERY")
+            else
+              json=$(gh api graphql -f project="$PROJECT_ID" -f query="$QUERY" -f after="${after_param[0]}")
+            fi
 
             # Extract nodes
             new_nodes=$(echo "$json" | jq -c '.data.node.items.nodes[]?')
@@ -72,20 +78,20 @@ jobs:
               done <<< "$new_nodes"
             fi
 
-            hasNext=$(echo "$json" | jq '.data.node.items.pageInfo.hasNextPage')
-            after=$(echo "$json" | jq -r '.data.node.items.pageInfo.endCursor')
-
             echo "Collected ${#items[@]} items so far..."
 
-            if [[ "$hasNext" != "true" ]]; then
-              break
+            # Pagination state
+            has_next=$(echo "$json" | jq '.data.node.items.pageInfo.hasNextPage')
+            end_cursor=$(echo "$json" | jq -r '.data.node.items.pageInfo.endCursor')
+
+            if [[ "$has_next" == "true" ]]; then
+              after_param=("$end_cursor")
             fi
           done
 
           echo "Total items collected: ${#items[@]}"
-
           printf '%s\n' "${items[@]}" > project_items.json
-          echo "items_file=project_items.json" >> $GITHUB_OUTPUT
+          echo "items_file=project_items.json" >> "$GITHUB_OUTPUT"          items=()
 
       - name: Process project items and apply Codex labels
         run: |
