@@ -1,6 +1,6 @@
 # yamllint disable rule:truthy
 ---
-name: Deploy Codex Dashboard
+name: Codex Deploy Dashboard
 
 on:
   push:
