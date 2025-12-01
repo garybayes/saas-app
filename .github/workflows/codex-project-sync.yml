@@ -1,11 +1,11 @@
----
 # yamllint disable rule:truthy
-name: Codex – Project Sync
+---
+name: Codex Project Sync
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: "*/45 * * * *"
+    - cron: "*/30 * * * *"   # Every 30 minutes
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -14,102 +14,149 @@ permissions:
 
 jobs:
   sync:
+    name: Sync Issues with Codex Project Board
     runs-on: ubuntu-latest
 
     env:
       GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-      REPO: ${{ github.repository }}
       PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
+      PROJECT_NUMBER: ${{ vars.CODEX_PROJECT_NUMBER }}
       MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
-      DASH_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
+      DASHBOARD_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
 
     steps:
-      - name: Start Codex Project Sync
+      # -----------------------------------------------------------
+      # 1. Setup
+      # -----------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install jq
         run: |
-          echo "Codex Project Sync starting…"
-          gh --version
+          sudo apt-get update
+          sudo apt-get install -y jq
 
-      # -------------------------------------------------------------
-      # 1. Fetch all open issues
-      # -------------------------------------------------------------
-      - name: Fetch issues
-        id: fetch
+      # -----------------------------------------------------------
+      # 2. Pull all project items
+      # -----------------------------------------------------------
+      - name: Fetch project items from API
+        id: project
         run: |
-          ISSUES=$(gh issue list --state open \
-            --json number,title,milestone,url,labels)
-          echo "$ISSUES" > issues.json
+          echo "Querying project items..."
 
-          COUNT=$(echo "$ISSUES" | jq 'length')
-          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
-
-      # -------------------------------------------------------------
-      # 2. Ensure all issues exist in project
-      # -------------------------------------------------------------
-      - name: Add issues to project
-        run: |
-          jq -c '.[]' issues.json | while read -r ITEM; do
-            NUM=$(echo "$ITEM" | jq '.number')
-
-            NODE=$(gh api graphql -f query='
-              query($owner:String!, $repo:String!, $num:Int!) {
-                repository(owner:$owner, name:$repo) {
-                  issue(number:$num) { id }
+          JSON=$(gh api graphql -f query='
+            query($id: ID!) {
+              node(id: $id) {
+                ... on ProjectV2 {
+                  items(first: 200) {
+                    nodes {
+                      id
+                      content {
+                        ... on Issue {
+                          number
+                          title
+                          milestone { title }
+                          labels(first: 20) {
+                            nodes { name }
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
-              }' \
-              -F owner="${GITHUB_REPOSITORY_OWNER}" \
-              -F repo="${GITHUB_REPOSITORY#*/}" \
-              -F num="$NUM")
+              }
+            }
+          ' -f id="$PROJECT_ID")
 
-            ID=$(echo "$NODE" | grep -oE '"id":"[^"]+"' | sed 's/"id":"\(.*\)"/\1/')
+          echo "$JSON" > project.json
+          echo "project_json=project.json" >> "$GITHUB_OUTPUT"
 
-            # Attempt to add; ignore if already exists
-            gh api graphql -f query='
-              mutation($project:ID!, $item:ID!) {
-                addProjectV2ItemById(input:{projectId:$project, contentId:$item}) {
-                  item { id }
-                }
-              }' \
-              -F project="$PROJECT_ID" \
-              -F item="$ID" || true
-          done
-
-      # -------------------------------------------------------------
-      # 3. Validate milestone membership
-      # -------------------------------------------------------------
-      - name: Validate milestone classification
+      # -----------------------------------------------------------
+      # 3. Iterate over items and verify consistency
+      # -----------------------------------------------------------
+      - name: Process project items
+        id: validation
         run: |
-          echo "Validating MAIN: $MAIN_MILESTONE"
-          echo "Validating DASH: $DASH_MILESTONE"
+          FILE="${{ steps.project.outputs.project_json }}"
 
-          jq -c '.[]' issues.json | while read -r ITEM; do
-            NUM=$(echo "$ITEM" | jq '.number')
-            MILE=$(echo "$ITEM" | jq -r '.milestone.title')
+          echo "Validating project items..."
 
-            if [[ "$MILE" == "null" ]]; then
-              echo "Issue #$NUM missing milestone."
+          ITEMS=$(jq -c '.data.node.items.nodes[]' "$FILE")
+
+          MISSING_COUNT=0
+          FIXED_COUNT=0
+
+          while IFS= read -r ITEM; do
+            ISSUE=$(jq -r '.content.number' <<< "$ITEM")
+
+            if [[ "$ISSUE" == "null" ]]; then
+              echo "→ Found non-issue project item. Removing..."
+              ITEM_ID=$(jq -r '.id' <<< "$ITEM")
+
+              gh api graphql -f query='
+                mutation($id: ID!) {
+                  deleteProjectV2Item(input: {itemId: $id}) {
+                    deletedItemId
+                  }
+                }
+              ' -f id="$ITEM_ID"
+
               continue
             fi
 
-            echo "Issue #$NUM → milestone: $MILE"
-          done
+            TITLE=$(jq -r '.content.title' <<< "$ITEM")
+            MILESTONE=$(jq -r '.content.milestone.title // empty' <<< "$ITEM")
 
-      # -------------------------------------------------------------
-      # 4. Telemetry output
-      # -------------------------------------------------------------
-      - name: Write telemetry
+            LABELS=$(jq -r '.content.labels.nodes[].name' <<< "$ITEM" || true)
+
+            echo "Issue #$ISSUE — $TITLE"
+            echo "  Milestone: $MILESTONE"
+            echo "  Labels: $LABELS"
+
+            # ---------------------------------------
+            # Ensure required labels exist
+            # ---------------------------------------
+            if [[ "$MILESTONE" == "$MAIN_MILESTONE" && "$LABELS" != *"main-track"* ]]; then
+              echo "  → Adding missing main-track label"
+              gh issue edit "$ISSUE" --add-label "main-track"
+              ((FIXED_COUNT++))
+            fi
+
+            if [[ "$MILESTONE" == "$DASHBOARD_MILESTONE" && "$LABELS" != *"dashboard-track"* ]]; then
+              echo "  → Adding missing dashboard-track label"
+              gh issue edit "$ISSUE" --add-label "dashboard-track"
+              ((FIXED_COUNT++))
+            fi
+
+            if [[ "$LABELS" != *"codex"* ]]; then
+              echo "  → Adding missing codex label"
+              gh issue edit "$ISSUE" --add-label "codex"
+              ((FIXED_COUNT++))
+            fi
+
+          done <<< "$ITEMS"
+
+          echo "fixed=$FIXED_COUNT" >> "$GITHUB_OUTPUT"
+          echo "missing=$MISSING_COUNT" >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------
+      # 4. Write telemetry snapshot
+      # -----------------------------------------------------------
+      - name: Write project telemetry snapshot
         run: |
-          mkdir -p codex-telemetry
-          TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          SNAPSHOT="project-telemetry/project-$(date +%s).json"
+          mkdir -p project-telemetry
 
-          printf '{\n' > codex-telemetry/project-sync.json
-          printf '  "timestamp": "%s",\n' "$TS" >> codex-telemetry/project-sync.json
-          printf '  "issue_count": %s,\n' "${{ steps.fetch.outputs.count }}" >> codex-telemetry/project-sync.json
-          printf '  "source": "project-sync"\n' >> codex-telemetry/project-sync.json
-          printf '}\n' >> codex-telemetry/project-sync.json
+          jq '.' project.json > "$SNAPSHOT"
 
-      # -------------------------------------------------------------
-      # 5. Trigger telemetry merge
-      # -------------------------------------------------------------
-      - name: Trigger telemetry merge
+          echo "Created telemetry: $SNAPSHOT"
+
+      # -----------------------------------------------------------
+      # 5. Summary
+      # -----------------------------------------------------------
+      - name: Sync Summary
         run: |
-          gh workflow run codex-telemetry-merge.yml || true
+          echo "---------------------------------------"
+          echo "Codex Project Sync Completed"
+          echo "Fixed labels: ${{ steps.validation.outputs.fixed }}"
+          echo "---------------------------------------"
