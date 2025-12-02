@@ -25,12 +25,12 @@ jobs:
       - name: Enable GitHub CLI
         run: gh --version
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
       - name: Fetch project items with pagination
         id: collect
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
           PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
         run: |
           QUERY='
@@ -107,7 +107,7 @@ jobs:
 
       - name: Commit project_items.json to gh-pages
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
         run: |
           git add project_items.json
           if git diff --cached --quiet; then
