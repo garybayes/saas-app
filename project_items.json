@@ -6,11 +6,7 @@
       "number": 8,
       "title": "Fix drag-and-drop node placement",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -21,11 +17,7 @@
       "number": 9,
       "title": "Implement connector line rendering",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -36,11 +28,7 @@
       "number": 10,
       "title": "Validate workflow JSON schema",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -51,11 +39,7 @@
       "number": 11,
       "title": "Implement SAVE workflow endpoint",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -66,11 +50,7 @@
       "number": 12,
       "title": "Implement LOAD workflow endpoint",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -81,11 +61,7 @@
       "number": 13,
       "title": "Add workflow integration tests",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -96,11 +72,7 @@
       "number": 14,
       "title": "Fix Prisma migration chain",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -111,11 +83,7 @@
       "number": 15,
       "title": "Rewrite seed script for Sprint 5",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -126,11 +94,7 @@
       "number": 16,
       "title": "Rebuild unit tests for Sprint 5",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -141,11 +105,7 @@
       "number": 17,
       "title": "Rebuild Playwright suite",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -156,11 +116,7 @@
       "number": 18,
       "title": "Fix Playwright flakiness",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -171,11 +127,7 @@
       "number": 19,
       "title": "Stabilize CI Pipeline",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -186,11 +138,7 @@
       "number": 20,
       "title": "Redesign dashboard layout",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -201,11 +149,7 @@
       "number": 21,
       "title": "Add mobile sidebar navigation",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -216,11 +160,7 @@
       "number": 22,
       "title": "Add mobile-friendly tab navigation",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -231,11 +171,7 @@
       "number": 23,
       "title": "Implement touch-friendly charts",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -246,11 +182,7 @@
       "number": 24,
       "title": "Add commit timeline chart",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -261,11 +193,7 @@
       "number": 25,
       "title": "Add workflow duration trend chart",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -276,11 +204,7 @@
       "number": 26,
       "title": "Add test pass/fail bar chart",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -291,11 +215,7 @@
       "number": 27,
       "title": "Add error heatmap",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -306,11 +226,7 @@
       "number": 28,
       "title": "Add branch comparison view",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -321,11 +237,7 @@
       "number": 29,
       "title": "Add PR history panel",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -336,11 +248,7 @@
       "number": 30,
       "title": "Split Codex data into modular JSON files",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -351,11 +259,7 @@
       "number": 31,
       "title": "Enable lazy-loading of charts",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -366,11 +270,7 @@
       "number": 32,
       "title": "Compress and minify dashboard data",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -381,11 +281,7 @@
       "number": 33,
       "title": "Add last-updated timestamp",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -576,11 +472,7 @@
       "number": 47,
       "title": "Dashboard V3: Telemetry Visualization Layer",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -591,11 +483,7 @@
       "number": 48,
       "title": "Dashboard V3: Codex Integrity Monitor",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -606,11 +494,7 @@
       "number": 49,
       "title": "Dashboard V3: Self-Healing Fallback Routines",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -621,11 +505,7 @@
       "number": 50,
       "title": "Dashboard V3: Data Reliability Score",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -636,11 +516,7 @@
       "number": 51,
       "title": "Dashboard V3: Historical Telemetry Timeline",
       "labels": {
-        "nodes": [
-          {
-            "name": "codex"
-          }
-        ]
+        "nodes": []
       }
     }
   },
@@ -1088,9 +964,6 @@
       "labels": {
         "nodes": [
           {
-            "name": "codex"
-          },
-          {
             "name": "codex-trackmain"
           }
         ]
@@ -1105,9 +978,6 @@
       "title": "E2E: Signup Flow Coverage",
       "labels": {
         "nodes": [
-          {
-            "name": "codex"
-          },
           {
             "name": "codex-trackmain"
           }
@@ -1124,9 +994,6 @@
       "labels": {
         "nodes": [
           {
-            "name": "codex"
-          },
-          {
             "name": "codex-trackmain"
           }
         ]
@@ -1141,9 +1008,6 @@
       "title": "E2E: Connections Module Coverage",
       "labels": {
         "nodes": [
-          {
-            "name": "codex"
-          },
           {
             "name": "codex-trackmain"
           }
@@ -1160,9 +1024,6 @@
       "labels": {
         "nodes": [
           {
-            "name": "codex"
-          },
-          {
             "name": "codex-trackmain"
           }
         ]
@@ -1177,9 +1038,6 @@
       "title": "Dashboard: Add Last-Updated Timestamp",
       "labels": {
         "nodes": [
-          {
-            "name": "codex"
-          },
           {
             "name": "codex-trackdashboard"
           }
@@ -1196,9 +1054,6 @@
       "labels": {
         "nodes": [
           {
-            "name": "codex"
-          },
-          {
             "name": "codex-trackdashboard"
           }
         ]
@@ -1213,9 +1068,6 @@
       "title": "Dashboard: Error Heatmap (Prototype)",
       "labels": {
         "nodes": [
-          {
-            "name": "codex"
-          },
           {
             "name": "codex-trackdashboard"
           }
