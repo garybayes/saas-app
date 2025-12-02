@@ -16,18 +16,28 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
+
     steps:
+      # ---------------------------
+      # 1. Checkout MAIN for scripts
+      # ---------------------------
       - name: Checkout main
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # ---------------------------
+      # 2. Enable GitHub CLI
+      # ---------------------------
       - name: Enable GitHub CLI
         run: gh --version
         env:
           GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
-      - name: Fetch project items with pagination
+      # ---------------------------
+      # 3. Fetch project items (with pagination)
+      # ---------------------------
+      - name: Collect project items
         id: collect
         env:
           GH_TOKEN: ${{ secrets.GH_CI_PAT }}
@@ -70,7 +80,7 @@ jobs:
               json=$(gh api graphql -f project="$PROJECT_ID" -f query="$QUERY" -f after="${after_param[0]}")
             fi
 
-            # Extract nodes
+            # Extract item nodes
             new_nodes=$(echo "$json" | jq -c '.data.node.items.nodes[]?')
             if [[ -n "$new_nodes" ]]; then
               while IFS= read -r item; do
@@ -79,7 +89,7 @@ jobs:
             fi
 
             hasNext=$(echo "$json" | jq '.data.node.items.pageInfo.hasNextPage')
-            end_cursor=$(echo "$json" | jq -r '.data.node.items.pageInfo.endCursor')
+            endCursor=$(echo "$json" | jq -r '.data.node.items.pageInfo.endCursor')
 
             echo "Collected ${#items[@]} items so far..."
 
@@ -87,34 +97,49 @@ jobs:
               break
             fi
 
-            after_param=("$end_cursor")
+            after_param=("$endCursor")
           done
 
           echo "Total items collected: ${#items[@]}"
 
+          # Write array to file
           printf '%s\n' "${items[@]}" | jq -s '.' > project_items.json
 
-          echo "file=project_items.json" >> $GITHUB_OUTPUT
-
+      # ---------------------------
+      # 4. Checkout GH-PAGES
+      # ---------------------------
       - name: Checkout gh-pages
-        run: |
-          git fetch origin gh-pages
-          git checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          fetch-depth: 0
 
-      - name: Write output to gh-pages
+      # ---------------------------
+      # 5. Ensure project_items.json exists
+      # ---------------------------
+      - name: Verify output file
         run: |
-          mv project_items.json project_items.json
+          if [[ ! -f "project_items.json" ]]; then
+            echo "::error::project_items.json missing after checkout switch"
+            exit 1
+          fi
 
+      # ---------------------------
+      # 6. Commit updated file
+      # ---------------------------
       - name: Commit project_items.json to gh-pages
         env:
           GH_TOKEN: ${{ secrets.GH_CI_PAT }}
         run: |
           git add project_items.json
+
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
           fi
+
           git config user.email "actions@github.com"
           git config user.name "GitHub Actions"
+
           git commit -m "[skip ci] Update project_items.json"
           git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" gh-pages
