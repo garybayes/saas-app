@@ -5,275 +5,68 @@ name: Codex Activity Engine Supervisor
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "15 * * * *"
 
 permissions:
   contents: write
   issues: write
 
-env:
-  GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-  PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
-  MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
-  DASHBOARD_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
-  ACTIVITY_STALE_DAYS: ${{ vars.CODEX_ACTIVITY_STALE_DAYS }}
-  ACTIVITY_ESCALATE_DAYS: ${{ vars.CODEX_ACTIVITY_ESCALATE_DAYS }}
-
 jobs:
-  supervise:
+  activity:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout main
+      - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
+          ref: gh-pages
           fetch-depth: 0
 
-      - name: Checkout gh-pages branch
+      - name: Enable GitHub CLI
+        run: gh --version
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Validate project_items.json exists
         run: |
-          git fetch origin gh-pages
-          git worktree add ghp gh-pages
-
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Ensure activity-telemetry and per-track start files
-        run: |
-          cd ghp
-          mkdir -p activity-telemetry
-
-          now_iso=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-          if [[ ! -f activity-telemetry/activity-start-main.json ]]; then
-            printf '%s\n' \
-              '{' \
-              '  "track": "main",' \
-              '  "milestone": "'"${MAIN_MILESTONE}"'",' \
-              '  "start_time": "'"${now_iso}"'"' \
-              '}' > activity-telemetry/activity-start-main.json
-          fi
-
-          if [[ ! -f activity-telemetry/activity-start-dashboard.json ]]; then
-            printf '%s\n' \
-              '{' \
-              '  "track": "dashboard",' \
-              '  "milestone": "'"${DASHBOARD_MILESTONE}"'",' \
-              '  "start_time": "'"${now_iso}"'"' \
-              '}' > activity-telemetry/activity-start-dashboard.json
-          fi
-
-      - name: Fetch project issues with pagination
-        id: fetch
-        run: |
-          echo "Fetching project items..."
-
-          QUERY='
-          query($project: ID!, $after: String) {
-            node(id: $project) {
-              ... on ProjectV2 {
-                items(first: 100, after: $after) {
-                  pageInfo {
-                    hasNextPage
-                    endCursor
-                  }
-                  nodes {
-                    id
-                    content {
-                      __typename
-                      ... on Issue {
-                        number
-                        title
-                        state
-                        updatedAt
-                        milestone {
-                          title
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }'
-
-          items=()
-          after_arg=()
-          has_next=true
-
-          while $has_next; do
-            if [[ -z "${after_arg[*]}" ]]; then
-              json=$(gh api graphql -f project="$PROJECT_ID" -f query="$QUERY")
-            else
-              json=$(gh api graphql -f project="$PROJECT_ID" -f query="$QUERY" -f after="${after_arg[0]}")
-            fi
-
-            new_nodes=$(echo "$json" | jq -c '.data.node.items.nodes[]?')
-            if [[ -n "$new_nodes" ]]; then
-              while IFS= read -r n; do
-                items+=("$n")
-              done <<< "$new_nodes"
-            fi
-
-            has_next=$(echo "$json" | jq '.data.node.items.pageInfo.hasNextPage')
-            end_cursor=$(echo "$json" | jq -r '.data.node.items.pageInfo.endCursor')
-
-            if [[ "$has_next" == "true" ]]; then
-              after_arg=("$end_cursor")
-            else
-              has_next=false
-            fi
-          done
-
-          printf '%s\n' "${items[@]}" > issues.json
-          echo "issues_file=issues.json" >> "$GITHUB_OUTPUT"
-
-      - name: Apply activity rules and write telemetry
-        run: |
-          FILE="${{ steps.fetch.outputs.issues_file }}"
-
-          if [[ ! -f "$FILE" ]]; then
-            echo "::error::issues.json missing"
+          if [[ ! -f "project_items.json" ]]; then
+            echo "::error::Missing project_items.json in gh-pages"
             exit 1
           fi
 
-          cd ghp
+      - name: Run Activity Engine
+        id: engine
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          FILE="project_items.json"
+          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          START_MAIN=$(jq -r '.start_time' activity-telemetry/activity-start-main.json)
-          START_DASH=$(jq -r '.start_time' activity-telemetry/activity-start-dashboard.json)
-
-          START_MAIN_E=$(date -u -d "$START_MAIN" +%s)
-          START_DASH_E=$(date -u -d "$START_DASH" +%s)
-          NOW_E=$(date -u +%s)
-
-          STALE_SEC=$(( ACTIVITY_STALE_DAYS * 86400 ))
-          ESC_SEC=$(( ACTIVITY_ESCALATE_DAYS * 86400 ))
-
+          issues=$(jq -c '.[]' "$FILE")
           total=0
-          stale=0
-          escalated=0
 
-          main_total=0
-          main_stale=0
-          main_esc=0
+          echo "{}" > activity-telemetry/latest.json
 
-          dash_total=0
-          dash_stale=0
-          dash_esc=0
-
-          jq -c '.' "../$FILE" | while read -r item; do
-            kind=$(echo "$item" | jq -r '.content.__typename')
-            [[ "$kind" != "Issue" ]] && continue
-
-            num=$(echo "$item" | jq -r '.content.number')
-            state=$(echo "$item" | jq -r '.content.state')
-            title=$(echo "$item" | jq -r '.content.title')
-            milestone=$(echo "$item" | jq -r '.content.milestone.title')
-            updatedAt=$(echo "$item" | jq -r '.content.updatedAt')
-
-            [[ "$state" != "OPEN" ]] && continue
-
-            track=""
-            track_start=0
-
-            if [[ "$milestone" == "${MAIN_MILESTONE}" ]]; then
-              track="main"
-              track_start=$START_MAIN_E
-            elif [[ "$milestone" == "${DASHBOARD_MILESTONE}" ]]; then
-              track="dashboard"
-              track_start=$START_DASH_E
-            else
-              # Ignore issues that aren't in the two active milestones
-              continue
-            fi
-
+          for row in $issues; do
             total=$((total+1))
-            if [[ "$track" == "main" ]]; then
-              main_total=$((main_total+1))
-            else
-              dash_total=$((dash_total+1))
-            fi
-
-            updated_e=$(date -u -d "$updatedAt" +%s)
-
-            # Guardrail: ignore pre-start updates
-            if [[ $updated_e -lt $track_start ]]; then
-              echo "#$num pre-start ($track), ignoring age"
-              continue
-            fi
-
-            age=$(( NOW_E - updated_e ))
-
-            if [[ $age -lt $STALE_SEC ]]; then
-              gh issue edit "$num" --remove-label "needs-attention" --remove-label "needs-escalation" || true
-              continue
-            fi
-
-            if [[ $age -ge $ESC_SEC ]]; then
-              echo "#$num ($track) → escalation"
-              gh issue edit "$num" --add-label "needs-escalation" --add-label "needs-attention" || true
-              escalated=$((escalated+1))
-              stale=$((stale+1))
-              if [[ "$track" == "main" ]]; then
-                main_esc=$((main_esc+1))
-                main_stale=$((main_stale+1))
-              else
-                dash_esc=$((dash_esc+1))
-                dash_stale=$((dash_stale+1))
-              fi
-            else
-              echo "#$num ($track) → stale"
-              gh issue edit "$num" --add-label "needs-attention" --remove-label "needs-escalation" || true
-              stale=$((stale+1))
-              if [[ "$track" == "main" ]]; then
-                main_stale=$((main_stale+1))
-              else
-                dash_stale=$((dash_stale+1))
-              fi
-            fi
           done
 
-          ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          out="activity-telemetry/activity-${ts//[:]/}.json"
+          jq -n --arg ts "$NOW" --argjson total "$total" '
+          {
+            activity: {
+              timestamp: $ts,
+              items_checked: $total
+            }
+          }' > activity-telemetry/latest.json
 
-          printf '%s\n' \
-            '{' \
-            '  "timestamp": "'"${ts}"'",' \
-            '  "items_checked": '"${total}"',' \
-            '  "stale": '"${stale}"',' \
-            '  "escalated": '"${escalated}"',' \
-            '  "tracks": {' \
-            '    "main": {' \
-            '      "milestone": "'"${MAIN_MILESTONE}"'",' \
-            '      "start_time": "'"${START_MAIN}"'",' \
-            '      "items_checked": '"${main_total}"',' \
-            '      "stale": '"${main_stale}"',' \
-            '      "escalated": '"${main_esc}"'' \
-            '    },' \
-            '    "dashboard": {' \
-            '      "milestone": "'"${DASHBOARD_MILESTONE}"'",' \
-            '      "start_time": "'"${START_DASH}"'",' \
-            '      "items_checked": '"${dash_total}"',' \
-            '      "stale": '"${dash_stale}"',' \
-            '      "escalated": '"${dash_esc}"'' \
-            '    }' \
-            '  }' \
-            '}' > "$out"
+          echo "ok=true" >> $GITHUB_OUTPUT
 
-          cp "$out" activity-telemetry/latest.json
-
-      - name: Commit and push activity telemetry
+      - name: Commit activity telemetry
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          cd ghp
-
+          git add activity-telemetry/latest.json
           git config user.email "actions@github.com"
           git config user.name "GitHub Actions"
-
-          git add activity-telemetry
-
-          if git diff --cached --quiet; then
-            echo "No activity telemetry changes to commit."
-            exit 0
-          fi
-
-          git commit -m "[skip ci] Codex Activity Telemetry Update"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
+          git commit -m "[skip ci] Activity Engine Telemetry" || true
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" gh-pages

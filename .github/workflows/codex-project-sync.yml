@@ -5,31 +5,34 @@ name: Codex Project Sync
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "0 * * * *"
 
 permissions:
-  contents: read
-  issues: write
-
-env:
-  GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-  PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
-  MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
-  DASHBOARD_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
+  contents: write
+  actions: read
+  repository-projects: read
+  issues: read
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout main
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enable GitHub CLI
+        run: gh --version
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Fetch project items with pagination
-        id: fetch
+        id: collect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
         run: |
-          echo "Fetching project items with pagination..."
-
           QUERY='
           query($project: ID!, $after: String) {
             node(id: $project) {
@@ -59,16 +62,15 @@ jobs:
 
           items=()
           after_param=()
-          has_next=true
 
-          while $has_next; do
+          while true; do
             if [[ -z "${after_param[*]}" ]]; then
               json=$(gh api graphql -f project="$PROJECT_ID" -f query="$QUERY")
             else
               json=$(gh api graphql -f project="$PROJECT_ID" -f query="$QUERY" -f after="${after_param[0]}")
             fi
 
-            # Extract items
+            # Extract nodes
             new_nodes=$(echo "$json" | jq -c '.data.node.items.nodes[]?')
             if [[ -n "$new_nodes" ]]; then
               while IFS= read -r item; do
@@ -76,64 +78,43 @@ jobs:
               done <<< "$new_nodes"
             fi
 
-            echo "Collected ${#items[@]} items so far..."
-
-            # Pagination
-            has_next=$(echo "$json" | jq '.data.node.items.pageInfo.hasNextPage')
+            hasNext=$(echo "$json" | jq '.data.node.items.pageInfo.hasNextPage')
             end_cursor=$(echo "$json" | jq -r '.data.node.items.pageInfo.endCursor')
 
-            if [[ "$has_next" == "true" ]]; then
-              after_param=("$end_cursor")
+            echo "Collected ${#items[@]} items so far..."
+
+            if [[ "$hasNext" != "true" ]]; then
+              break
             fi
+
+            after_param=("$end_cursor")
           done
 
           echo "Total items collected: ${#items[@]}"
 
-          printf '%s\n' "${items[@]}" > project_items.json
-          echo "items_file=project_items.json" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "${items[@]}" | jq -s '.' > project_items.json
 
-      - name: Apply Codex labels based on milestone
+          echo "file=project_items.json" >> $GITHUB_OUTPUT
+
+      - name: Checkout gh-pages
         run: |
-          FILE="${{ steps.fetch.outputs.items_file }}"
+          git fetch origin gh-pages
+          git checkout gh-pages
 
-          if [[ ! -f "$FILE" ]]; then
-            echo "::error::project_items.json not found"
-            exit 1
+      - name: Write output to gh-pages
+        run: |
+          mv project_items.json project_items.json
+
+      - name: Commit project_items.json to gh-pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git add project_items.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
           fi
-
-          echo "Processing project items..."
-
-          jq -c '.' "$FILE" | while read -r item; do
-            issue_number=$(echo "$item" | jq -r '.content.number')
-
-            if [[ "$issue_number" == "null" ]]; then
-              continue
-            fi
-
-            echo "Processing Issue #$issue_number..."
-
-            # Always apply master Codex label
-            gh issue edit "$issue_number" --add-label "codex" || true
-
-            # Get milestone title
-            MILESTONE=$(gh issue view "$issue_number" --json milestone --jq '.milestone.title')
-
-            if [[ "$MILESTONE" == "${MAIN_MILESTONE}" ]]; then
-              echo " → Sprint track"
-              gh issue edit "$issue_number" --add-label "codex-tracksprint" || true
-              gh issue edit "$issue_number" --remove-label "codex-trackdashboard" || true
-
-            elif [[ "$MILESTONE" == "${DASHBOARD_MILESTONE}" ]]; then
-              echo " → Dashboard track"
-              gh issue edit "$issue_number" --add-label "codex-trackdashboard" || true
-              gh issue edit "$issue_number" --remove-label "codex-tracksprint" || true
-
-            else
-              echo " → No milestone → Codex only"
-              gh issue edit "$issue_number" --remove-label "codex-tracksprint" || true
-              gh issue edit "$issue_number" --remove-label "codex-trackdashboard" || true
-            fi
-          done
-
-      - name: Done
-        run: echo "Codex Project Sync Complete."
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git commit -m "[skip ci] Update project_items.json"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" gh-pages
