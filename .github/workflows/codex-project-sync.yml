@@ -18,26 +18,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ---------------------------
-      # 1. Checkout MAIN for scripts
-      # ---------------------------
+      # --------------------------------------------------
+      # 1. Checkout MAIN for running query scripts
+      # --------------------------------------------------
       - name: Checkout main
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ---------------------------
+      # --------------------------------------------------
       # 2. Enable GitHub CLI
-      # ---------------------------
-      - name: Enable GitHub CLI
+      # --------------------------------------------------
+      - name: GitHub CLI Version
         run: gh --version
         env:
           GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
-      # ---------------------------
-      # 3. Fetch project items (with pagination)
-      # ---------------------------
-      - name: Collect project items
+      # --------------------------------------------------
+      # 3. Collect ProjectV2 items (GraphQL pagination)
+      # --------------------------------------------------
+      - name: Fetch project items
         id: collect
         env:
           GH_TOKEN: ${{ secrets.GH_CI_PAT }}
@@ -102,31 +102,32 @@ jobs:
 
           echo "Total items collected: ${#items[@]}"
 
-          # Write array to file
           printf '%s\n' "${items[@]}" | jq -s '.' > project_items.json
 
-      # ---------------------------
-      # 4. Checkout GH-PAGES
-      # ---------------------------
+      # --------------------------------------------------
+      # 4. Save file to temporary runner storage
+      # --------------------------------------------------
+      - name: Save file before switching branches
+        run: cp project_items.json "$RUNNER_TEMP/project_items.json"
+
+      # --------------------------------------------------
+      # 5. Checkout gh-pages (this replaces workspace)
+      # --------------------------------------------------
       - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           fetch-depth: 0
 
-      # ---------------------------
-      # 5. Ensure project_items.json exists
-      # ---------------------------
-      - name: Verify output file
-        run: |
-          if [[ ! -f "project_items.json" ]]; then
-            echo "::error::project_items.json missing after checkout switch"
-            exit 1
-          fi
+      # --------------------------------------------------
+      # 6. Restore file into gh-pages branch
+      # --------------------------------------------------
+      - name: Restore project_items.json
+        run: cp "$RUNNER_TEMP/project_items.json" project_items.json
 
-      # ---------------------------
-      # 6. Commit updated file
-      # ---------------------------
+      # --------------------------------------------------
+      # 7. Commit file (if changed)
+      # --------------------------------------------------
       - name: Commit project_items.json to gh-pages
         env:
           GH_TOKEN: ${{ secrets.GH_CI_PAT }}
