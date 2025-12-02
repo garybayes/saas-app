@@ -1,122 +1,279 @@
-# yamllint disable rule:truthy
 ---
+# yamllint disable rule:truthy
 name: Codex Activity Engine Supervisor
 
 on:
-  schedule:
-    - cron: "15 */6 * * *"   # Offset from dual-track by 15 minutes
   workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
 
 permissions:
   contents: write
   issues: write
-  repository-projects: write
+
+env:
+  GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+  PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
+  MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
+  DASHBOARD_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
+  ACTIVITY_STALE_DAYS: ${{ vars.CODEX_ACTIVITY_STALE_DAYS }}
+  ACTIVITY_ESCALATE_DAYS: ${{ vars.CODEX_ACTIVITY_ESCALATE_DAYS }}
 
 jobs:
-  activity:
-    name: Codex Activity Engine
+  supervise:
     runs-on: ubuntu-latest
 
-    env:
-      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-      ACTIVITY_STALE: ${{ vars.CODEX_ACTIVITY_STALE_DAYS }}
-      ACTIVITY_ESCALATE: ${{ vars.CODEX_ACTIVITY_ESCALATE_DAYS }}
-
     steps:
-      # -----------------------------------------------------------
-      # 1. Setup
-      # -----------------------------------------------------------
-      - name: Checkout repo
+      - name: Checkout main
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Install jq & GNU date support
+      - name: Checkout gh-pages branch
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq coreutils
+          git fetch origin gh-pages
+          git worktree add ghp gh-pages
 
-      # -----------------------------------------------------------
-      # 2. Fetch all open issues (not milestone-limited)
-      # -----------------------------------------------------------
-      - name: Fetch all open issues
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Ensure activity-telemetry and per-track start files
+        run: |
+          cd ghp
+          mkdir -p activity-telemetry
+
+          now_iso=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          if [[ ! -f activity-telemetry/activity-start-main.json ]]; then
+            printf '%s\n' \
+              '{' \
+              '  "track": "main",' \
+              '  "milestone": "'"${MAIN_MILESTONE}"'",' \
+              '  "start_time": "'"${now_iso}"'"' \
+              '}' > activity-telemetry/activity-start-main.json
+          fi
+
+          if [[ ! -f activity-telemetry/activity-start-dashboard.json ]]; then
+            printf '%s\n' \
+              '{' \
+              '  "track": "dashboard",' \
+              '  "milestone": "'"${DASHBOARD_MILESTONE}"'",' \
+              '  "start_time": "'"${now_iso}"'"' \
+              '}' > activity-telemetry/activity-start-dashboard.json
+          fi
+
+      - name: Fetch project issues with pagination
         id: fetch
         run: |
-          echo "Fetching all open issues..."
+          echo "Fetching project items..."
 
-          gh issue list \
-            --state open \
-            --limit 200 \
-            --json number,title,updatedAt,createdAt,labels \
-            > issues.json
+          QUERY='
+          query($project: ID!, $after: String) {
+            node(id: $project) {
+              ... on ProjectV2 {
+                items(first: 100, after: $after) {
+                  pageInfo {
+                    hasNextPage
+                    endCursor
+                  }
+                  nodes {
+                    id
+                    content {
+                      __typename
+                      ... on Issue {
+                        number
+                        title
+                        state
+                        updatedAt
+                        milestone {
+                          title
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }'
 
-          echo "issues_json=issues.json" >> "$GITHUB_OUTPUT"
+          items=()
+          after_arg=()
+          has_next=true
 
-      # -----------------------------------------------------------
-      # 3. Process activity-based stale/escalation
-      # -----------------------------------------------------------
-      - name: Activity Logic
-        id: activity
-        run: |
-          FILE="${{ steps.fetch.outputs.issues_json }}"
-
-          echo "Processing activity-based stale/escalation rules..."
-          ISSUES=$(jq -c '.[]' "$FILE")
-
-          NOW_TS=$(date +%s)
-
-          while IFS= read -r ISSUE; do
-            NUM=$(jq -r '.number' <<< "$ISSUE")
-            TITLE=$(jq -r '.title' <<< "$ISSUE")
-            UPDATED=$(jq -r '.updatedAt' <<< "$ISSUE")
-            LABELS=$(jq -r '.labels[].name' <<< "$ISSUE" || true)
-
-            UPDATED_TS=$(date -d "$UPDATED" +%s)
-            DIFF_DAYS=$(( (NOW_TS - UPDATED_TS) / 86400 ))
-
-            echo "#$NUM — $TITLE (updated $DIFF_DAYS days ago)"
-
-            # -------------------------------
-            # Stale threshold
-            # -------------------------------
-            if [[ $DIFF_DAYS -ge $ACTIVITY_STALE && $DIFF_DAYS -lt $ACTIVITY_ESCALATE ]]; then
-              if [[ "$LABELS" != *"stale"* ]]; then
-                echo "  → Marking stale"
-                gh issue edit "$NUM" --add-label "stale"
-                gh issue comment "$NUM" --body "⏳ This issue has been marked **stale** due to inactivity ($DIFF_DAYS days)."
-              fi
+          while $has_next; do
+            if [[ -z "${after_arg[*]}" ]]; then
+              json=$(gh api graphql -f project="$PROJECT_ID" -f query="$QUERY")
+            else
+              json=$(gh api graphql -f project="$PROJECT_ID" -f query="$QUERY" -f after="${after_arg[0]}")
             fi
 
-            # -------------------------------
-            # Escalation threshold
-            # -------------------------------
-            if [[ $DIFF_DAYS -ge $ACTIVITY_ESCALATE ]]; then
-              if [[ "$LABELS" != *"needs-attention"* ]]; then
-                echo "  → Escalating"
-                gh issue edit "$NUM" --add-label "needs-attention"
-                gh issue comment "$NUM" --body "🚨 This issue requires **attention** — no updates for $DIFF_DAYS days."
-              fi
+            new_nodes=$(echo "$json" | jq -c '.data.node.items.nodes[]?')
+            if [[ -n "$new_nodes" ]]; then
+              while IFS= read -r n; do
+                items+=("$n")
+              done <<< "$new_nodes"
             fi
 
-          done <<< "$ISSUES"
+            has_next=$(echo "$json" | jq '.data.node.items.pageInfo.hasNextPage')
+            end_cursor=$(echo "$json" | jq -r '.data.node.items.pageInfo.endCursor')
 
-      # -----------------------------------------------------------
-      # 4. Write activity telemetry snapshot
-      # -----------------------------------------------------------
-      - name: Write activity telemetry snapshot
+            if [[ "$has_next" == "true" ]]; then
+              after_arg=("$end_cursor")
+            else
+              has_next=false
+            fi
+          done
+
+          printf '%s\n' "${items[@]}" > issues.json
+          echo "issues_file=issues.json" >> "$GITHUB_OUTPUT"
+
+      - name: Apply activity rules and write telemetry
         run: |
-          TS=$(date +%s)
-          OUT_DIR="activity-telemetry"
-          OUT="$OUT_DIR/activity-$TS.json"
+          FILE="${{ steps.fetch.outputs.issues_file }}"
 
-          mkdir -p "$OUT_DIR"
-          cp issues.json "$OUT"
+          if [[ ! -f "$FILE" ]]; then
+            echo "::error::issues.json missing"
+            exit 1
+          fi
 
-          echo "Telemetry written: $OUT"
+          cd ghp
 
-      # -----------------------------------------------------------
-      # 5. Summary
-      # -----------------------------------------------------------
-      - name: Activity Summary
+          START_MAIN=$(jq -r '.start_time' activity-telemetry/activity-start-main.json)
+          START_DASH=$(jq -r '.start_time' activity-telemetry/activity-start-dashboard.json)
+
+          START_MAIN_E=$(date -u -d "$START_MAIN" +%s)
+          START_DASH_E=$(date -u -d "$START_DASH" +%s)
+          NOW_E=$(date -u +%s)
+
+          STALE_SEC=$(( ACTIVITY_STALE_DAYS * 86400 ))
+          ESC_SEC=$(( ACTIVITY_ESCALATE_DAYS * 86400 ))
+
+          total=0
+          stale=0
+          escalated=0
+
+          main_total=0
+          main_stale=0
+          main_esc=0
+
+          dash_total=0
+          dash_stale=0
+          dash_esc=0
+
+          jq -c '.' "../$FILE" | while read -r item; do
+            kind=$(echo "$item" | jq -r '.content.__typename')
+            [[ "$kind" != "Issue" ]] && continue
+
+            num=$(echo "$item" | jq -r '.content.number')
+            state=$(echo "$item" | jq -r '.content.state')
+            title=$(echo "$item" | jq -r '.content.title')
+            milestone=$(echo "$item" | jq -r '.content.milestone.title')
+            updatedAt=$(echo "$item" | jq -r '.content.updatedAt')
+
+            [[ "$state" != "OPEN" ]] && continue
+
+            track=""
+            track_start=0
+
+            if [[ "$milestone" == "${MAIN_MILESTONE}" ]]; then
+              track="main"
+              track_start=$START_MAIN_E
+            elif [[ "$milestone" == "${DASHBOARD_MILESTONE}" ]]; then
+              track="dashboard"
+              track_start=$START_DASH_E
+            else
+              # Ignore issues that aren't in the two active milestones
+              continue
+            fi
+
+            total=$((total+1))
+            if [[ "$track" == "main" ]]; then
+              main_total=$((main_total+1))
+            else
+              dash_total=$((dash_total+1))
+            fi
+
+            updated_e=$(date -u -d "$updatedAt" +%s)
+
+            # Guardrail: ignore pre-start updates
+            if [[ $updated_e -lt $track_start ]]; then
+              echo "#$num pre-start ($track), ignoring age"
+              continue
+            fi
+
+            age=$(( NOW_E - updated_e ))
+
+            if [[ $age -lt $STALE_SEC ]]; then
+              gh issue edit "$num" --remove-label "needs-attention" --remove-label "needs-escalation" || true
+              continue
+            fi
+
+            if [[ $age -ge $ESC_SEC ]]; then
+              echo "#$num ($track) → escalation"
+              gh issue edit "$num" --add-label "needs-escalation" --add-label "needs-attention" || true
+              escalated=$((escalated+1))
+              stale=$((stale+1))
+              if [[ "$track" == "main" ]]; then
+                main_esc=$((main_esc+1))
+                main_stale=$((main_stale+1))
+              else
+                dash_esc=$((dash_esc+1))
+                dash_stale=$((dash_stale+1))
+              fi
+            else
+              echo "#$num ($track) → stale"
+              gh issue edit "$num" --add-label "needs-attention" --remove-label "needs-escalation" || true
+              stale=$((stale+1))
+              if [[ "$track" == "main" ]]; then
+                main_stale=$((main_stale+1))
+              else
+                dash_stale=$((dash_stale+1))
+              fi
+            fi
+          done
+
+          ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          out="activity-telemetry/activity-${ts//[:]/}.json"
+
+          printf '%s\n' \
+            '{' \
+            '  "timestamp": "'"${ts}"'",' \
+            '  "items_checked": '"${total}"',' \
+            '  "stale": '"${stale}"',' \
+            '  "escalated": '"${escalated}"',' \
+            '  "tracks": {' \
+            '    "main": {' \
+            '      "milestone": "'"${MAIN_MILESTONE}"'",' \
+            '      "start_time": "'"${START_MAIN}"'",' \
+            '      "items_checked": '"${main_total}"',' \
+            '      "stale": '"${main_stale}"',' \
+            '      "escalated": '"${main_esc}"'' \
+            '    },' \
+            '    "dashboard": {' \
+            '      "milestone": "'"${DASHBOARD_MILESTONE}"'",' \
+            '      "start_time": "'"${START_DASH}"'",' \
+            '      "items_checked": '"${dash_total}"',' \
+            '      "stale": '"${dash_stale}"',' \
+            '      "escalated": '"${dash_esc}"'' \
+            '    }' \
+            '  }' \
+            '}' > "$out"
+
+          cp "$out" activity-telemetry/latest.json
+
+      - name: Commit and push activity telemetry
         run: |
-          echo "---------------------------------------"
-          echo "Codex Activity Engine Supervisor Completed"
-          echo "---------------------------------------"
+          cd ghp
+
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+
+          git add activity-telemetry
+
+          if git diff --cached --quiet; then
+            echo "No activity telemetry changes to commit."
+            exit 0
+          fi
+
+          git commit -m "[skip ci] Codex Activity Telemetry Update"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages

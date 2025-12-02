@@ -1,5 +1,5 @@
-# yamllint disable rule:truthy
 ---
+# yamllint disable rule:truthy
 name: Codex Telemetry Merge
 
 on:
@@ -7,8 +7,11 @@ on:
   schedule:
     - cron: "*/30 * * * *"
 
-permissions:  # yamllint disable rule:truthy
+permissions:
   contents: write
+
+env:
+  GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
 jobs:
   merge:
@@ -28,84 +31,61 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Init merged structure
+      - name: Init merged object
         run: echo '{}' > merged.json
 
-      #######################################################################
-      # SELF-TEST MERGE
-      #######################################################################
       - name: Merge self-test telemetry
         run: |
-          # Prefer latest.json
           if [[ -f ghp/activity-telemetry/latest.json ]]; then
-            LATEST_SELFTEST="ghp/activity-telemetry/latest.json"
-          else
-            LATEST_SELFTEST=$(ls ghp/activity-telemetry/*.json 2>/dev/null | sort | tail -n 1)
+            # Some legacy self-test may have separate files; keep this step for compatibility.
+            # If you decide later to store self-test somewhere else, we can adjust here.
+            :
           fi
 
-          if [[ -f "$LATEST_SELFTEST" ]]; then
-            echo "Using self-test telemetry: $LATEST_SELFTEST"
-            SELF=$(jq -r '.selftest // empty' "$LATEST_SELFTEST")
+          # If you still have a dedicated self-test file, plug its path here.
+          # For now, skip extraction if not present.
 
-            # Normalize array -> object
-            if echo "$SELF" | jq -e 'type=="array"' >/dev/null 2>&1; then
-              SELF=$(echo "$SELF" | jq '.[0]')
-            fi
-
-            echo "$SELF" > tmp_self.json
-            jq '.selftest = input' merged.json tmp_self.json > out.json
-            mv out.json merged.json
-          else
-            echo "No self-test telemetry found"
-          fi
-
-      #######################################################################
-      # SUPERVISOR MERGE
-      #######################################################################
       - name: Merge supervisor telemetry
         run: |
           if [[ -f ghp/project-telemetry/latest.json ]]; then
-            LATEST_SUPERVISOR="ghp/project-telemetry/latest.json"
-          else
-            LATEST_SUPERVISOR=$(ls ghp/project-telemetry/*.json 2>/dev/null | sort | tail -n 1)
-          fi
-
-          if [[ -f "$LATEST_SUPERVISOR" ]]; then
-            echo "Using supervisor telemetry: $LATEST_SUPERVISOR"
-            SUP=$(jq -r '.supervisor // empty' "$LATEST_SUPERVISOR")
-
-            # Normalize array → object
-            if echo "$SUP" | jq -e 'type=="array"' >/dev/null 2>&1; then
-              SUP=$(echo "$SUP" | jq '.[0]')
+            SUP=$(jq -r '.supervisor // empty' ghp/project-telemetry/latest.json || echo "")
+            if [[ -n "$SUP" && "$SUP" != "null" ]]; then
+              if echo "$SUP" | jq -e 'type=="array"' >/dev/null 2>&1; then
+                SUP=$(echo "$SUP" | jq '.[0]')
+              fi
+              echo "$SUP" > tmp_super.json
+              jq '.supervisor = input' merged.json tmp_super.json > out.json
+              mv out.json merged.json
             fi
-
-            echo "$SUP" > tmp_super.json
-            jq '.supervisor = input' merged.json tmp_super.json > out.json
-            mv out.json merged.json
           else
             echo "No supervisor telemetry found"
           fi
 
-      #######################################################################
-      # ADD TIMESTAMP
-      #######################################################################
+      - name: Merge activity telemetry
+        run: |
+          if [[ -f ghp/activity-telemetry/latest.json ]]; then
+            ACT=$(cat ghp/activity-telemetry/latest.json)
+            echo "$ACT" > tmp_activity.json
+            jq '.activity = input' merged.json tmp_activity.json > out.json
+            mv out.json merged.json
+          else
+            echo "No activity telemetry found"
+          fi
+
       - name: Add updated_at timestamp
         run: |
           TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           jq --arg ts "$TS" '.updated_at = $ts' merged.json > final.json
           mv final.json merged.json
 
-      #######################################################################
-      # DEPLOY
-      #######################################################################
-      - name: Commit & push to gh-pages
+      - name: Commit and push merged codex-data.json
         run: |
           cd ghp
 
+          cp ../merged.json codex-data.json
+
           git config user.email "actions@github.com"
           git config user.name "GitHub Actions"
-
-          cp ../merged.json codex-data.json
 
           git add codex-data.json
 
@@ -116,5 +96,3 @@ jobs:
 
           git commit -m "[skip ci] Merge Codex telemetry"
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
-        env:
-          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
