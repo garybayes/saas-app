@@ -14,34 +14,38 @@ permissions:
 jobs:
   selftest:
     runs-on: ubuntu-latest
+
     env:
       GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
     steps:
-      - name: Checkout repo
+
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
           path: repo
 
+      #
+      # Determine milestone
+      #
       - name: Determine milestone
-        id: ms
+        id: milestone
         working-directory: repo
         run: |
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
-          # Use repo variable if set, otherwise fallback to Codex Internal
+          # Read milestone title from repo variables or fallback
           SELFTEST_MILESTONE_TITLE="$(gh variable get CODEX_SELFTEST_MILESTONE -q 2>/dev/null || echo 'Codex Internal')"
 
           ms_json="$(gh api "/repos/$OWNER/$REPO/milestones")"
-          SELFTEST_MILESTONE_NUMBER="$( \
-            echo "$ms_json" | jq -r \
-            --arg T "$SELFTEST_MILESTONE_TITLE" \
-            '.[] | select(.title == $T) | .number' \
+
+          SELFTEST_MILESTONE_NUMBER="$(
+            echo "$ms_json" |
+            jq -r --arg T "$SELFTEST_MILESTONE_TITLE" '.[] | select(.title==$T) | .number'
           )"
 
           if [ -z "$SELFTEST_MILESTONE_NUMBER" ] || [ "$SELFTEST_MILESTONE_NUMBER" = "null" ]; then
-            echo "Milestone not found → skipping self-test."
             echo "skip=yes" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -51,48 +55,71 @@ jobs:
           echo "number=$SELFTEST_MILESTONE_NUMBER" >> "$GITHUB_OUTPUT"
 
       - name: Skip if milestone missing
-        if: steps.ms.outputs.skip == 'yes'
-        run: echo "Self-test skipped because milestone missing."
+        if: steps.milestone.outputs.skip == 'yes'
+        run: echo "Self-Test skipped (milestone missing)."
 
+      #
+      # Create Self-Test issue
+      #
       - name: Create Self-Test Issue
-        if: steps.ms.outputs.skip == 'no'
+        if: steps.milestone.outputs.skip == 'no'
+        id: create_selftest_issue
         working-directory: repo
         run: |
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
-          SELFTEST_MILESTONE_TITLE="${{ steps.ms.outputs.title }}"
+          TITLE="Codex Self-Test: $(date -u +'%Y-%m-%d %H:%M UTC')"
+          BODY="Automated nightly self-test of Codex subsystem."
 
-          ISSUE_TITLE="Codex Self-Test: $(date -u +'%Y-%m-%d %H:%M UTC')"
-          ISSUE_BODY="Automated self-test of the Codex system."
+          MILESTONE="${{ steps.milestone.outputs.title }}"
 
-          # Create new issue using proper CLI flags
-          new_issue_url="$(
+          issue_url="$(
             gh issue create \
-              --title "$ISSUE_TITLE" \
-              --body "$ISSUE_BODY" \
+              --title "$TITLE" \
+              --body "$BODY" \
               --label "codex" \
               --label "codex-selftest" \
-              --milestone "$SELFTEST_MILESTONE_TITLE" \
+              --milestone "$MILESTONE" \
               --project "Codex Dual-Track Development"
           )"
 
-          issue_number="$(basename "$new_issue_url")"
-          echo "Created Self-Test issue #$issue_number"
+          issue_number="$(basename "$issue_url")"
+          echo "issue_number=$issue_number" >> "$GITHUB_OUTPUT"
 
-      - name: Update telemetry
+      #
+      # Write telemetry JSON
+      #
+      - name: Prepare telemetry file
+        id: telemetry
         working-directory: repo
         run: |
-          mkdir -p ../gh-pages/telemetry
-          ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          ISSUE_NUMBER="${{ steps.create_selftest_issue.outputs.issue_number }}"
+          [ -z "$ISSUE_NUMBER" ] && ISSUE_NUMBER="none"
+
+          ts="$(date -u +"%Y%m%dT%H%M%SZ")"
           outfile="../gh-pages/telemetry/selftest-${ts}.json"
 
-          printf '{\n' > "$outfile"
-          printf '  "component": "selftest",\n' >> "$outfile"
-          printf '  "timestamp": "%s"\n' "$ts" >> "$outfile"
-          printf '}\n' >> "$outfile"
+          mkdir -p ../gh-pages/telemetry
 
-          echo "Wrote telemetry: $outfile"
+          {
+            printf '{\n'
+            printf '  "component": "selftest",\n'
+            printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            printf '  "issue": "%s"\n' "$ISSUE_NUMBER"
+            printf '}\n'
+          } > "$outfile"
+
+          echo "outfile=$outfile" >> "$GITHUB_OUTPUT"
+
+      #
+      # Commit telemetry
+      #
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
 
       - name: Commit telemetry
         working-directory: gh-pages
