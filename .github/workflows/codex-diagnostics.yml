@@ -1,5 +1,5 @@
 ---
-name: Codex Diagnostics (v7.4)
+name: Codex Diagnostics (v7.4.1)
 # yamllint disable-line rule:truthy
 on:
   schedule:
@@ -66,9 +66,9 @@ jobs:
 
           # Milestones
           ms_json="$(gh api "/repos/$OWNER/$REPO/milestones")"
-          ms_main=$(echo "$ms_json" | jq -r '.[] | select(.number == env.CODEX_MAIN_MILESTONE|tonumber) | .title')
-          ms_dash=$(echo "$ms_json" | jq -r '.[] | select(.number == env.CODEX_DASHBOARD_MILESTONE|tonumber) | .title')
-          ms_self=$(echo "$ms_json" | jq -r '.[] | select(.number == env.CODEX_SELFTEST_MILESTONE|tonumber) | .title')
+          ms_main=$(echo "$ms_json" | jq -r '.[] | select(.number == env.CODEX_MAIN_MILESTONE) | .title')
+          ms_dash=$(echo "$ms_json" | jq -r '.[] | select(.number == env.CODEX_DASHBOARD_MILESTONE) | .title')
+          ms_self=$(echo "$ms_json" | jq -r '.[] | select(.number == env.CODEX_SELFTEST_MILESTONE) | .title')
 
           # Labels
           labels_json="$(gh api "/repos/$OWNER/$REPO/labels")"
