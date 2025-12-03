@@ -1,4 +1,3 @@
-# yamllint disable rule:truthy
 ---
 name: Codex Auto-Assign
 
@@ -8,124 +7,61 @@ on:
     types: [opened, edited]
 
 permissions:
-  contents: write
+  contents: read
   issues: write
-  repository-projects: write
 
 jobs:
   autoassign:
-    name: Auto-Assign New Issues
     runs-on: ubuntu-latest
 
     env:
       GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-      PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
-      PROJECT_NUMBER: ${{ vars.CODEX_PROJECT_NUMBER }}
-      MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
-      DASHBOARD_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
 
     steps:
-      # -----------------------------------------------------------
-      # 1. Prepare environment
-      # -----------------------------------------------------------
-      - name: Checkout repository
+
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install jq
+      - name: Auto-Assign Codex Label + Milestone
+        id: process
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
+          OWNER="${GITHUB_REPOSITORY%/*}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+          ISSUE="${{ github.event.issue.number }}"
 
-      # -----------------------------------------------------------
-      # 2. Extract Issue Metadata
-      # -----------------------------------------------------------
-      - name: Gather issue details
-        id: meta
-        run: |
-          NUMBER="${{ github.event.issue.number }}"
-          TITLE=$(jq -r '.issue.title' <<< '${{ toJson(github.event) }}')
-          BODY=$(jq -r '.issue.body' <<< '${{ toJson(github.event) }}')
-          MILESTONE=$(jq -r '.issue.milestone.title // empty' <<< '${{ toJson(github.event) }}')
-          LABELS=$(jq -r '.issue.labels[].name' <<< '${{ toJson(github.event) }}' || true)
+          echo "Processing issue #$ISSUE"
 
-          echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
-          echo "title=$TITLE" >> "$GITHUB_OUTPUT"
-          echo "body=$BODY" >> "$GITHUB_OUTPUT"
-          echo "milestone=$MILESTONE" >> "$GITHUB_OUTPUT"
-          echo "labels=$LABELS" >> "$GITHUB_OUTPUT"
+          #
+          # Detect if Codex issue
+          #
+          ISSUE_JSON="$(gh api "/repos/$OWNER/$REPO/issues/$ISSUE")"
 
-          echo "Issue #$NUMBER"
-          echo "Milestone: $MILESTONE"
-          echo "Labels: $LABELS"
+          TITLE="$(echo "$ISSUE_JSON" | jq -r '.title')"
 
-      # -----------------------------------------------------------
-      # 3. Auto-label / auto-assign logic
-      # -----------------------------------------------------------
-      - name: Apply auto-labels based on content
-        run: |
-          ISSUE=${{ steps.meta.outputs.number }}
-
-          # Label: main-track
-          if [[ "${{ steps.meta.outputs.milestone }}" == "$MAIN_MILESTONE" ]]; then
-            echo "Applying label: main-track"
-            gh issue edit "$ISSUE" --add-label "main-track"
+          # Codex issues begin with "Codex:"
+          if ! echo "$TITLE" | grep -qi '^Codex:'; then
+            echo "Not a Codex issue — skipping."
+            exit 0
           fi
 
-          # Label: dashboard-track
-          if [[ "${{ steps.meta.outputs.milestone }}" == "$DASHBOARD_MILESTONE" ]]; then
-            echo "Applying label: dashboard-track"
-            gh issue edit "$ISSUE" --add-label "dashboard-track"
+          #
+          # Set labels
+          #
+          gh issue edit "$ISSUE" \
+            --add-label "codex" \
+            --add-label "codex-trackmain"
+
+          #
+          # Set milestone automatically (Codex Internal)
+          #
+          COD_MILE="$(gh api "/repos/$OWNER/$REPO/milestones" \
+            | jq -r '.[] | select(.title=="Codex Internal") | .number')"
+
+          if [ -n "$COD_MILE" ]; then
+            gh issue edit "$ISSUE" --milestone "$COD_MILE"
+            echo "Attached milestone: Codex Internal"
+          else
+            echo "Codex Internal milestone not found!"
           fi
 
-          # Default triage label
-          echo "Applying label: codex"
-          gh issue edit "$ISSUE" --add-label "codex"
-
-      # -----------------------------------------------------------
-      # 4. Add issue to Codex Project V2 (using PAT)
-      # -----------------------------------------------------------
-      - name: Retrieve issue node ID
-        id: node
-        run: |
-          ISSUE=${{ steps.meta.outputs.number }}
-
-          NODE=$(gh api graphql -f query='
-            query($owner:String!, $repo:String!, $num:Int!) {
-              repository(owner:$owner, name:$repo) {
-                issue(number:$num) { id }
-              }
-            }
-          ' -f owner="garybayes" -f repo="saas-app" -F num="$ISSUE" --jq '.data.repository.issue.id')
-
-          echo "node_id=$NODE" >> "$GITHUB_OUTPUT"
-          echo "Issue node ID: $NODE"
-
-      - name: Add item to project
-        run: |
-          ISSUE_NODE=${{ steps.node.outputs.node_id }}
-
-          echo "Adding issue to project via addProjectV2ItemById..."
-
-          gh api graphql -f query='
-            mutation($project: ID!, $content: ID!) {
-              addProjectV2ItemById(
-                input: {projectId: $project, contentId: $content}
-              ) {
-                item { id }
-              }
-            }
-          ' \
-          -f project="$PROJECT_ID" \
-          -f content="$ISSUE_NODE"
-
-          echo "✔ Added to Codex Project."
-
-      # -----------------------------------------------------------
-      # 5. Summary
-      # -----------------------------------------------------------
-      - name: Auto-Assign Summary
-        run: |
-          echo "---------------------------------------"
-          echo "Codex Auto-Assign Completed"
-          echo "Issue #${{ steps.meta.outputs.number }} processed."
-          echo "---------------------------------------"
+          echo "Auto-assign completed for issue #$ISSUE"
