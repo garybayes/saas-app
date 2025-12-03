@@ -76,8 +76,10 @@ jobs:
             fi
           done
 
-          # Validate repo-level project
-          proj_json="$(gh api "/repos/$OWNER/$REPO/projects")"
+          # Validate repo-level project (classic GitHub Projects)
+          proj_json="$(gh api -H "Accept: application/vnd.github.inertia-preview+json" \
+            "/repos/$OWNER/$REPO/projects")"
+
           project_ok="true"
           if ! echo "$proj_json" | jq -e \
             '.[] | select(.name=="Codex Dual-Track Development")' >/dev/null; then
