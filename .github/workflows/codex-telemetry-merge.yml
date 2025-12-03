@@ -21,7 +21,7 @@ jobs:
           path: gh-pages
 
       - name: Install GitHub CLI
-        uses: cli/cli@v4
+        uses: actions/setup-gh@v3
         with:
           version: latest
 
