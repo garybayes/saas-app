@@ -1,7 +1,8 @@
 ---
-"name": "Codex Project Sync (v8)"
+name: "Codex Project Sync (v8)"
 
-"on":
+# yamllint disable-line rule:truthy
+on:
   schedule:
     - cron: "15 */4 * * *"  # every 4 hours + 15 min offset from supervisor
   workflow_dispatch: {}

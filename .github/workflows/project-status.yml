@@ -1,6 +1,7 @@
 ---
 name: Project Status
 
+# yamllint disable-line rule:truthy
 on:
   pull_request:
     types: [closed]

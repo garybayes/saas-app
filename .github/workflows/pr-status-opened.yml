@@ -1,6 +1,7 @@
 ---
 name: PR Status - Opened
 
+# yamllint disable-line rule:truthy
 on:
   pull_request:
     types: [opened, reopened, ready_for_review]

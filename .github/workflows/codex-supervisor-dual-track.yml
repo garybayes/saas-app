@@ -2,6 +2,7 @@
 ---
 name: Codex Dual-Track Supervisor
 
+# yamllint disable-line rule:truthy
 on:
   schedule:
     - cron: "0 */6 * * *"   # Every 6 hours

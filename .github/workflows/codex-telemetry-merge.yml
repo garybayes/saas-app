@@ -1,7 +1,8 @@
 ---
-"name": "Codex Telemetry Merge (v6)"
+name: "Codex Telemetry Merge (v6)"
 
-"on":
+# yamllint disable-line rule:truthy
+on:
   schedule:
     - cron: "30 */4 * * *"  # run after supervisor + sync + activity
   workflow_dispatch: {}

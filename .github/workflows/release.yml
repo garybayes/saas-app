@@ -1,6 +1,7 @@
 ---
 name: Automated Release
 
+# yamllint disable-line rule:truthy
 on:
   workflow_dispatch:
     inputs:

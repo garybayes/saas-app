@@ -2,6 +2,7 @@
 # yamllint disable rule:truthy
 name: Codex Consistency Check
 
+# yamllint disable-line rule:truthy
 on:
   schedule:
     # Every Monday at 03:00

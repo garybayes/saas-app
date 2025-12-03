@@ -1,7 +1,8 @@
 ---
 name: "Codex Supervisor (v6)"
 
-"on":
+# yamllint disable-line rule:truthy
+on:
   schedule:
     - cron: "0 */4 * * *"  # every 4 hours
   workflow_dispatch: {}

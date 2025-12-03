@@ -1,6 +1,7 @@
 ---
 name: Create Release Pull Request
 
+# yamllint disable-line rule:truthy
 on:
   workflow_dispatch:
     inputs:

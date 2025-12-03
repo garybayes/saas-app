@@ -2,6 +2,7 @@
 ---
 name: Codex Deploy Dashboard
 
+# yamllint disable-line rule:truthy
 on:
   push:
     branches:

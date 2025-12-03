@@ -2,6 +2,7 @@
 ---
 name: Codex Cleanup (gh-pages)
 
+# yamllint disable-line rule:truthy
 on:
   workflow_dispatch:
   schedule:

@@ -1,6 +1,7 @@
 ---
 name: Commit Status Update
 
+# yamllint disable-line rule:truthy
 on:
   push:
     branches:

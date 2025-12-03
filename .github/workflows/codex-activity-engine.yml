@@ -1,7 +1,8 @@
 ---
-"name": "Codex Activity Engine (v3)"
+name: "Codex Activity Engine (v3)"
 
-"on":
+# yamllint disable-line rule:truthy
+on:
   schedule:
     - cron: "45 */4 * * *"  # runs after supervisor + sync, before telemetry merge
   workflow_dispatch: {}
