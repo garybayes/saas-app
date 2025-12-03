@@ -1,9 +1,9 @@
 ---
 name: Codex Diagnostics (v4)
 
-on:
+"on":
   schedule:
-    - cron: "50 */6 * * *"   # every 6 hours
+    - cron: "50 */6 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -14,7 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_CI_PAT: ${{ secrets.GH_CI_PAT }}
-      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
     steps:
       - name: Checkout gh-pages
@@ -30,6 +29,7 @@ jobs:
 
       - name: Authenticate GitHub CLI
         run: |
+          unset GH_TOKEN
           if [ -n "${GH_CI_PAT:-}" ]; then
             echo "$GH_CI_PAT" | gh auth login --with-token
           else
