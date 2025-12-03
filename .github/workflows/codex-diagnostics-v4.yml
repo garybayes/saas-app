@@ -1,7 +1,7 @@
+# yamllint disable-line rule:truthy
 ---
 name: Codex Diagnostics (v4)
 
-# yamllint disable-line rule:truthy
 on:
   schedule:
     - cron: "50 */6 * * *"
