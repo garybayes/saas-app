@@ -1,10 +1,10 @@
 ---
-name: Codex Diagnostics (v5)
+name: Codex Diagnostics (v6)
 
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "50 */6 * * *"
+    - cron: "50 */6 * * *"  # every 6 hours
   workflow_dispatch: {}
 
 permissions:
@@ -27,25 +27,32 @@ jobs:
           path: repo
 
       - name: Configure GitHub CLI token
+        shell: bash
         run: |
+          # GitHub sets GH_TOKEN automatically → override it
+          echo "Unsetting GH_TOKEN so GH_CI_PAT can be used…"
           unset GH_TOKEN
 
           if [ -n "${GH_CI_PAT:-}" ]; then
             echo "$GH_CI_PAT" | gh auth login --with-token
+            echo "Authenticated using GH_CI_PAT."
           else
-            echo "ERROR: GH_CI_PAT secret is missing or empty."
+            echo "ERROR: GH_CI_PAT is missing or empty."
             exit 1
           fi
 
       - name: Run Diagnostics
         id: diag
         working-directory: repo
+        shell: bash
         run: |
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
+          echo "Repository: $OWNER/$REPO"
+
           #
-          # Validate required repo variables
+          # 1. Required repo variables
           #
           required_vars=(
             CODEX_MAIN_MILESTONE
@@ -61,39 +68,51 @@ jobs:
 
           missing_vars=()
           for v in "${required_vars[@]}"; do
-            if ! gh variable get "$v" >/dev/null 2>&1; then
+            if ! gh variable get "$v" --repo "$OWNER/$REPO" >/dev/null 2>&1; then
               missing_vars+=( "$v" )
             fi
           done
 
           #
-          # Validate milestones (safe string compare)
+          # 2. Milestone validation (safe version)
           #
-          ms_json="$(gh api "/repos/$OWNER/$REPO/milestones")"
-          ms_main=$(echo "$ms_json" | jq -r '.[] | select((.number|tostring) == env.CODEX_MAIN_MILESTONE) | .title')
-          ms_dash=$(echo "$ms_json" | jq -r '.[] | select((.number|tostring) == env.CODEX_DASHBOARD_MILESTONE) | .title')
+          ms_json="$(gh api "/repos/$OWNER/$REPO/milestones" --jq '.')"
+
+          ms_main=$(echo "$ms_json" | jq -r \
+            --arg M "$CODEX_MAIN_MILESTONE" \
+            '.[] | select((.number|tostring)==$M) | .title')
+
+          ms_dash=$(echo "$ms_json" | jq -r \
+            --arg M "$CODEX_DASHBOARD_MILESTONE" \
+            '.[] | select((.number|tostring)==$M) | .title')
 
           #
-          # Validate labels
+          # 3. Mandatory labels
           #
           labels_json="$(gh api "/repos/$OWNER/$REPO/labels")"
-
           need_labels=(codex codex-selftest codex-trackmain codex-trackdashboard)
-          missing_labels=()
 
+          missing_labels=()
           for lbl in "${need_labels[@]}"; do
-            if ! echo "$labels_json" | jq -e --arg L "$lbl" '.[] | select(.name==$L)' >/dev/null; then
+            if ! echo "$labels_json" | jq -e --arg L "$lbl" '.[] | select(.name==$L)' >/dev/null 2>&1; then
               missing_labels+=( "$lbl" )
             fi
           done
 
           #
-          # Projects v2 cannot be validated via REST API
+          # 4. Project exists?
           #
-          project_ok="unknown"
+          # NOTE: Repo projects use this endpoint:
+          #       GET /repos/{owner}/{repo}/projects
+          #
+          proj_json="$(gh api "/repos/$OWNER/$REPO/projects")"
+          project_ok="false"
+          if echo "$proj_json" | jq -e '.[] | select(.name=="Codex Dual-Track Development")' >/dev/null 2>&1; then
+            project_ok="true"
+          fi
 
           #
-          # Validate gh-pages structure
+          # 5. gh-pages structure
           #
           dash_exists="false"
           tel_exists="false"
@@ -106,13 +125,10 @@ jobs:
             tel_exists="true"
           fi
 
-          mkdir -p ../gh-pages/telemetry
-
           #
-          # Write diagnostics telemetry
+          # 6. Emit Diagnostics JSON
           #
-          ts="$(date -u +"%Y%m%dT%H%M%SZ")"
-          outfile="../gh-pages/telemetry/diagnostics-$ts.json"
+          out="../gh-pages/telemetry/diagnostics-$(date -u +"%Y%m%dT%H%M%SZ").json"
 
           {
             printf '{\n'
@@ -143,20 +159,20 @@ jobs:
             printf '  }\n'
 
             printf '}\n'
-          } > "$outfile"
+          } > "$out"
 
-          echo "Wrote telemetry: $outfile"
+          echo "Wrote diagnostics file: $out"
 
       - name: Commit Diagnostics Telemetry
         working-directory: gh-pages
+        shell: bash
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add telemetry/
-          git commit -m "Diagnostics telemetry update" || echo "No changes to commit"
-
-      - name: Push to gh-pages
-        working-directory: gh-pages
-        run: |
-          git push origin gh-pages || true
+          if [ -n "$(git status --porcelain)" ]; then
+            git add telemetry/
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -m "Codex Diagnostics: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+            git push
+          else
+            echo "No telemetry changes to commit."
+          fi
