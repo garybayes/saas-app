@@ -1,227 +1,122 @@
 ---
-name: Codex Project Sync (v9)
+name: "Codex Project Sync (v9.1)"
 
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "15 */4 * * *"  # every 4 hours, offset from supervisor
+    - cron: "15 */4 * * *"  # every 4 hours + offset
   workflow_dispatch: {}
+  repository_dispatch:
+    types: [codex-project-sync]
 
 permissions:
   contents: write
-  issues: write
-  repository-projects: write
 
 jobs:
-  project-sync:
+  sync:
     runs-on: ubuntu-latest
-    name: Codex Project Sync
-
-    env:
-      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-      CODEX_MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
-      CODEX_DASHBOARD_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
+    name: "Codex Project Sync"
 
     steps:
-      - name: Checkout gh-pages
-        uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-          path: gh-pages
-
-      - name: Checkout main
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           path: repo
 
-      - name: Validate GitHub token
-        shell: bash
+      - name: Configure GitHub token (v7 auth)
+        env:
+          GH_CI_PAT: ${{ secrets.GH_CI_PAT }}
         run: |
-          set -e
+          set -euo pipefail
+          echo "Unsetting GH_TOKEN (GitHub auto-inject)…"
+          unset GH_TOKEN
 
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "ERROR: GH_TOKEN (from GH_CI_PAT) is missing."
+          if [ -n "${GH_CI_PAT:-}" ]; then
+            echo "$GH_CI_PAT" | gh auth login --with-token
+            echo "Authenticated via GH_CI_PAT"
+          else
+            echo "ERROR: GH_CI_PAT is missing or empty."
             exit 1
           fi
 
-          echo "Validating GitHub API authentication..."
-          if ! gh api rate_limit >/dev/null 2>&1; then
-            echo "ERROR: GitHub API authentication failed with GH_TOKEN."
-            exit 1
-          fi
-
-          echo "GitHub API authentication OK."
-
-      - name: Run Codex Project Sync
-        shell: bash
-        working-directory: repo
+      - name: Load Codex config variables
+        id: config
         run: |
           set -euo pipefail
 
+          MAIN_MS=$(gh variable get CODEX_MAIN_MILESTONE --jq '.value')
+          DASH_MS=$(gh variable get CODEX_DASHBOARD_MILESTONE --jq '.value')
+
+          echo "main_ms=$MAIN_MS" >> "$GITHUB_OUTPUT"
+          echo "dash_ms=$DASH_MS" >> "$GITHUB_OUTPUT"
+
+          echo "Loaded:"
+          echo "  Main milestone      = $MAIN_MS"
+          echo "  Dashboard milestone = $DASH_MS"
+
+      - name: Fetch Codex issues via Search API (safe mode)
+        id: fetch
+        run: |
+          set -euo pipefail
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
-          echo "Running Codex Project Sync v9 for $OWNER/$REPO"
+          echo "Fetching Codex issues…"
 
-          main_ms="${CODEX_MAIN_MILESTONE:-}"
-          dash_ms="${CODEX_DASHBOARD_MILESTONE:-}"
-
-          if [ -z "$main_ms" ] || [ -z "$dash_ms" ]; then
-            echo "ERROR: CODEX_MAIN_MILESTONE or CODEX_DASHBOARD_MILESTONE is not set."
-            exit 1
-          fi
-
-          echo "Using milestones:"
-          echo "  Main      : $main_ms"
-          echo "  Dashboard : $dash_ms"
-
-          echo "Fetching Codex issues..."
+          # Search API is the ONLY safe way to filter by label
           issues_json="$(
             gh api \
               --paginate \
               -H "Accept: application/vnd.github+json" \
-              "/repos/$OWNER/$REPO/issues" \
-              -f state=all \
-              -f labels=codex \
-              -f per_page=100
+              "/search/issues" \
+              -f q="repo:$OWNER/$REPO label:codex is:issue" \
+              -f per_page=100 \
+            | jq '.items'
           )"
 
-          if [ -z "$issues_json" ] || [ "$issues_json" = "[]" ]; then
-            echo "No Codex issues found. Nothing to sync."
-            exit 0
-          fi
+          # Filter PRs just in case
+          issues_json="$(echo "$issues_json" | jq 'map(select(.pull_request? == null))')"
 
-          fixed_main=0
-          fixed_dash=0
-          skipped_no_ms=0
-          unchanged=0
+          count=$(echo "$issues_json" | jq 'length')
+          echo "Found $count Codex issues."
 
-          echo "$issues_json" | jq -rc '
-            .[]
-            | {
-                number,
-                state,
-                milestone: (.milestone.number // null),
-                labels: [ .labels[].name ]
-              }
-          ' | while read -r row; do
-            number=$(echo "$row" | jq -r '.number')
-            state=$(echo "$row" | jq -r '.state')
-            milestone=$(echo "$row" | jq -r '.milestone // empty')
-            labels_json=$(echo "$row" | jq -c '.labels')
+          echo "issues_json=$issues_json" >> "$GITHUB_OUTPUT"
 
-            has_main=$(echo "$labels_json" | jq -e 'index("codex-trackmain")' >/dev/null 2>&1 && echo "yes" || echo "no")
-            has_dash=$(echo "$labels_json" | jq -e 'index("codex-trackdashboard")' >/dev/null 2>&1 && echo "yes" || echo "no")
+      - name: Sync issues to milestones
+        run: |
+          set -euo pipefail
+          MAIN_MS="${{ steps.config.outputs.main_ms }}"
+          DASH_MS="${{ steps.config.outputs.dash_ms }}"
 
-            # Closed issues are left untouched (for now) to avoid rewriting history
-            if [ "$state" = "closed" ]; then
-              echo "Issue #$number is closed; leaving track labels unchanged."
-              unchanged=$((unchanged + 1))
-              continue
-            fi
+          echo "$MAIN_MS" | grep -qE '^[0-9]+$' || { echo "Invalid MAIN milestone"; exit 1; }
+          echo "$DASH_MS" | grep -qE '^[0-9]+$' || { echo "Invalid DASH milestone"; exit 1; }
 
-            if [ -z "${milestone:-}" ]; then
-              echo "Issue #$number has no milestone; skipping track alignment."
-              skipped_no_ms=$((skipped_no_ms + 1))
-              continue
-            fi
+          issues='${{ steps.fetch.outputs.issues_json }}'
+          echo "$issues" | jq -c '.[]' | while read -r issue; do
+            number=$(echo "$issue" | jq -r '.number')
+            title=$(echo "$issue" | jq -r '.title')
+            labels=$(echo "$issue" | jq -r '[.labels[].name]')
 
-            echo "Processing issue #$number (milestone=$milestone, main=$main_ms, dash=$dash_ms)"
+            echo "→ Processing #$number: $title"
 
-            add_label=""
-            remove_label=""
-
-            if [ "$milestone" = "$main_ms" ]; then
-              # Main track should have codex-trackmain only
-              if [ "$has_main" = "no" ]; then
-                add_label="codex-trackmain"
-              fi
-              if [ "$has_dash" = "yes" ]; then
-                remove_label="codex-trackdashboard"
-              fi
-              if [ -n "$add_label" ] || [ -n "$remove_label" ]; then
-                echo "→ Aligning #$number to MAIN track"
-                if [ -n "$add_label" ] && [ -n "$remove_label" ]; then
-                  gh issue edit "$number" \
-                    --add-label "$add_label" \
-                    --remove-label "$remove_label"
-                elif [ -n "$add_label" ]; then
-                  gh issue edit "$number" --add-label "$add_label"
-                elif [ -n "$remove_label" ]; then
-                  gh issue edit "$number" --remove-label "$remove_label"
-                fi
-                fixed_main=$((fixed_main + 1))
-              else
-                unchanged=$((unchanged + 1))
-              fi
-            elif [ "$milestone" = "$dash_ms" ]; then
-              # Dashboard track should have codex-trackdashboard only
-              if [ "$has_dash" = "no" ]; then
-                add_label="codex-trackdashboard"
-              fi
-              if [ "$has_main" = "yes" ]; then
-                remove_label="codex-trackmain"
-              fi
-              if [ -n "$add_label" ] || [ -n "$remove_label" ]; then
-                echo "→ Aligning #$number to DASHBOARD track"
-                if [ -n "$add_label" ] && [ -n "$remove_label" ]; then
-                  gh issue edit "$number" \
-                    --add-label "$add_label" \
-                    --remove-label "$remove_label"
-                elif [ -n "$add_label" ]; then
-                  gh issue edit "$number" --add-label "$add_label"
-                elif [ -n "$remove_label" ]; then
-                  gh issue edit "$number" --remove-label "$remove_label"
-                fi
-                fixed_dash=$((fixed_dash + 1))
-              else
-                unchanged=$((unchanged + 1))
-              fi
+            # Determine track
+            if echo "$labels" | jq -e 'index("codex-trackmain")' >/dev/null; then
+              target="$MAIN_MS"
+            elif echo "$labels" | jq -e 'index("codex-trackdashboard")' >/dev/null; then
+              target="$DASH_MS"
             else
-              echo "Issue #$number in non-Codex milestone ($milestone); leaving track labels unchanged."
-              unchanged=$((unchanged + 1))
+              echo "  Skipping — no track label"
+              continue
             fi
+
+            echo "  → Applying milestone $target"
+            gh api \
+              -X PATCH \
+              "/repos/${GITHUB_REPOSITORY}/issues/$number" \
+              -f milestone="$target" >/dev/null
+
           done
 
-          echo "Codex Project Sync summary:"
-          echo "  Main track updates     : $fixed_main"
-          echo "  Dashboard track updates: $fixed_dash"
-          echo "  Skipped (no milestone) : $skipped_no_ms"
-          echo "  Unchanged              : $unchanged"
-
-          # Write telemetry in gh-pages/telemetry
-          ts="$(date -u +"%Y%m%dT%H%M%SZ")"
-          outdir="../gh-pages/telemetry"
-          mkdir -p "$outdir"
-          outfile="$outdir/project-sync-$ts.json"
-
-          {
-            printf '{\n'
-            printf '  "component": "project-sync",\n'
-            printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            printf '  "repository": "%s",\n' "$GITHUB_REPOSITORY"
-            printf '  "main_milestone": "%s",\n' "$main_ms"
-            printf '  "dashboard_milestone": "%s",\n' "$dash_ms"
-            printf '  "stats": {\n'
-            printf '    "fixed_main": %s,\n' "$fixed_main"
-            printf '    "fixed_dashboard": %s,\n' "$fixed_dash"
-            printf '    "skipped_no_milestone": %s,\n' "$skipped_no_ms"
-            printf '    "unchanged": %s\n' "$unchanged"
-            printf '  }\n'
-            printf '}\n'
-          } > "$outfile"
-
-          echo "Wrote project sync telemetry to: $outfile"
-
-      - name: Commit telemetry
-        shell: bash
-        working-directory: gh-pages
+      - name: Summary
         run: |
-          set -e
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add telemetry/*.json || true
-          git commit -m "Codex Project Sync telemetry update" || echo "No changes"
-          git push origin gh-pages || true
+          echo "Codex Project Sync v9.1 completed."
