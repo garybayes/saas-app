@@ -20,10 +20,6 @@ jobs:
           ref: gh-pages
           path: gh-pages
 
-      - name: Install GitHub CLI
-        uses: actions/setup-gh@v3
-        with:
-          version: latest
 
       - name: Configure token
         run: |
