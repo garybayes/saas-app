@@ -1,0 +1,88 @@
+---
+name: "Codex Supervisor (v6)"
+
+"on":
+  schedule:
+    - cron: "0 */4 * * *"  # every 4 hours
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  supervisor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Install GitHub CLI
+        uses: cli/cli@v4
+        with:
+          version: latest
+
+      - name: Configure token
+        run: |
+          if gh auth token >/dev/null 2>&1; then
+            echo "Using gh auth token"
+          else
+            if [ -n "${GH_CI_PAT:-}" ]; then
+              gh auth login --with-token <<< "$GH_CI_PAT"
+            else
+              echo "ERROR: No token found."
+              exit 1
+            fi
+          fi
+
+      - name: Read repo variables
+        id: vars
+        run: |
+          echo "main_ms=${{ vars.CODEX_MAIN_MILESTONE }}" >> "$GITHUB_OUTPUT"
+          echo "dash_ms=${{ vars.CODEX_DASHBOARD_MILESTONE }}" >> "$GITHUB_OUTPUT"
+          echo "main_stale=${{ vars.CODEX_MAIN_STALE_DAYS }}" >> "$GITHUB_OUTPUT"
+          echo "main_esc=${{ vars.CODEX_MAIN_ESCALATION_DAYS }}" >> "$GITHUB_OUTPUT"
+          echo "dash_stale=${{ vars.CODEX_DASHBOARD_STALE_DAYS }}" >> "$GITHUB_OUTPUT"
+          echo "dash_esc=${{ vars.CODEX_DASHBOARD_ESCALATION_DAYS }}" >> "$GITHUB_OUTPUT"
+
+      - name: Run supervisor engine
+        id: sup
+        working-directory: repo
+        run: |
+          OWNER="${GITHUB_REPOSITORY%/*}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+
+          main_ms="${{ steps.vars.outputs.main_ms }}"
+          dash_ms="${{ steps.vars.outputs.dash_ms }}"
+
+          main_stale="${{ steps.vars.outputs.main_stale }}"
+          main_esc="${{ steps.vars.outputs.main_esc }}"
+          dash_stale="${{ steps.vars.outputs.dash_stale }}"
+          dash_esc="${{ steps.vars.outputs.dash_esc }}"
+
+          fetch_ms() {
+            local ms=$1
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/$OWNER/$REPO/issues?milestone=$ms&state=all&per_page=100" \
+              --paginate \
+              --jq '.[].number'
+          }
+
+          main_issues=( $(fetch_ms "$main_ms") )
+          dash_issues=( $(fetch_ms "$dash_ms") )
+
+          analyze_issue() {
+            local n="$1"
+            gh api "/repos/$OWNER/$REPO/issues/$n" \
+              -H "Accept: application/vnd.github+json" \
+              --jq '{numbe

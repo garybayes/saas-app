@@ -1,182 +1,76 @@
-# yamllint disable rule:truthy
 ---
-name: Codex Self-Test
+name: Codex Self-Test v6
 
-on:
+"on":
+  schedule:
+    - cron: "0 2 * * *"
   workflow_dispatch:
 
-permissions:
-  contents: write
-  issues: write
-  actions: read
-  repository-projects: write
-
 jobs:
-  selftest:
-    name: Run Codex Self-Test
+  codex-selftest:
+    name: Codex Self-Test
     runs-on: ubuntu-latest
 
     env:
-      CODEX_PROJECT_URL: ${{ vars.CODEX_PROJECT_URL }}
-      CODEX_PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
-      CODEX_PROJECT_NUMBER: ${{ vars.CODEX_PROJECT_NUMBER }}
       GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+      CODEX_SELFTEST_MILESTONE: ${{ vars.CODEX_SELFTEST_MILESTONE }}
+      CODEX_SELFTEST_DEFAULT_MILESTONE: "Codex Internal"
 
     steps:
-      # ---------------------------------------------------------
-      # 1. Checkout repo
-      # ---------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Install GitHub CLI
+        uses: cli/cli@v3
         with:
-          fetch-depth: 0
+          version: latest
 
-      # ---------------------------------------------------------
-      # 2. Create self-test issue (robust GH CLI compatible)
-      # ---------------------------------------------------------
-      - name: Create self-test issue
-        id: create_issue
+      - name: Run Codex Self-Test
         run: |
-          TITLE="Codex Self-Test $(date +%s)"
-          BODY="Codex automated self-test issue."
+          set -euo pipefail
 
-          echo "Creating issue: $TITLE"
+          REPO="${GITHUB_REPOSITORY}"
+          OWNER="${REPO%/*}"
+          REPO_NAME="${REPO#*/}"
 
-          gh issue create \
-            --title "$TITLE" \
-            --body "$BODY" \
-            --repo "${{ github.repository }}"
+          mkdir -p gh-pages/telemetry
 
-          # Get all open issues as JSON
-          ISSUE_JSON=$(gh issue list --state open --json number,title)
+          ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          telemetry="gh-pages/telemetry/self-test-${GITHUB_RUN_ID}.json"
 
-          # Extract the issue number by matching the exact title text
-          ISSUE_NUMBER=$(echo "$ISSUE_JSON" \
-            | jq -r --arg TITLE "$TITLE" '.[] | select(.title == $TITLE) | .number')
+          # Determine milestone
+          M="${CODEX_SELFTEST_MILESTONE:-$CODEX_SELFTEST_DEFAULT_MILESTONE}"
 
-          if [[ -z "$ISSUE_NUMBER" || "$ISSUE_NUMBER" == "null" ]]; then
-            echo "::error::Failed to retrieve issue number"
-            echo "DEBUG: Full JSON from GitHub CLI:"
-            echo "$ISSUE_JSON"
-            exit 1
-          fi
+          # Verify milestone exists
+          MS_ID=$(gh api \
+            "/repos/${OWNER}/${REPO_NAME}/milestones" \
+            --jq ".[] | select(.title == \"$M\") | .number" || true)
 
-          ISSUE_URL="https://github.com/${{ github.repository }}/issues/$ISSUE_NUMBER"
-
-          echo "Created issue URL: $ISSUE_URL"
-          echo "issue_url=$ISSUE_URL" >> "$GITHUB_OUTPUT"
-
-      # ---------------------------------------------------------
-      # 3. Add issue to Project V2 (CORRECT mutation name)
-      # ---------------------------------------------------------
-      - name: Add issue to Codex project
-        run: |
-          ISSUE_URL=${{ steps.create_issue.outputs.issue_url }}
-          ISSUE_NUMBER="${ISSUE_URL##*/}"
-
-          echo "Retrieving issue node ID..."
-          ISSUE_ID=$(gh api graphql -f query='
-            query($owner:String!, $repo:String!, $number:Int!) {
-              repository(owner:$owner, name:$repo) {
-                issue(number:$number) {
-                  id
-                }
-              }
-            }
-          ' -f owner="garybayes" -f repo="saas-app" -F number="$ISSUE_NUMBER" --jq '.data.repository.issue.id')
-
-          echo "Issue node ID: $ISSUE_ID"
-
-          echo "Adding issue to project using addProjectV2ItemById..."
-          gh api graphql -f query='
-            mutation($project: ID!, $content: ID!) {
-              addProjectV2ItemById(
-                input: {projectId: $project, contentId: $content}
-              ) {
-                item { id }
-              }
-            }
-          ' -f project="${{ vars.CODEX_PROJECT_ID }}" -f content="$ISSUE_ID"
-
-          echo "✔ Issue added to project successfully."
-
-      # ---------------------------------------------------------
-      # 4. Close issue
-      # ---------------------------------------------------------
-      - name: Close self-test issue
-        run: |
-          ISSUE_URL=${{ steps.create_issue.outputs.issue_url }}
-          gh issue close "$ISSUE_URL"
-
-      # ---------------------------------------------------------
-      # 5. Prepare self-test telemetry JSON
-      # ---------------------------------------------------------
-      - name: Generate self-test telemetry
-        run: |
-          mkdir -p activity-telemetry
-
-          cat <<EOF > activity-telemetry/latest.json
-          {
-            "selftest": [
-              {
-                "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-                "status": "ok",
-                "issue": "${{ steps.create_issue.outputs.issue_url }}"
-              }
-            ]
-          }
-          EOF
-
-          echo "Generated self-test telemetry:"
-          cat activity-telemetry/latest.json
-
-      # ---------------------------------------------------------
-      # 6. Checkout gh-pages to write telemetry
-      # ---------------------------------------------------------
-      - name: Checkout gh-pages
-        uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-          fetch-depth: 0
-          path: ghp
-
-      # ---------------------------------------------------------
-      # 7. Write self-test telemetry to gh-pages
-      # ---------------------------------------------------------
-      - name: Copy telemetry to gh-pages
-        run: |
-          mkdir -p ghp/activity-telemetry
-          cp activity-telemetry/latest.json ghp/activity-telemetry/latest.json
-
-      # ---------------------------------------------------------
-      # 8. Commit telemetry update
-      # ---------------------------------------------------------
-      - name: Commit telemetry file
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          cd ghp
-
-          git config user.email "actions@github.com"
-          git config user.name "GitHub Actions"
-
-          git add activity-telemetry/latest.json
-
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
+          if [[ -z "$MS_ID" ]]; then
+            printf \
+              '{"component":"selftest","status":"error","reason":"missing_milestone",\
+              "milestone":"%s","timestamp":"%s","run_id":"%s","run_number":"%s","repository":"%s"}' \
+              "$M" "$ts" "${GITHUB_RUN_ID}" "${GITHUB_RUN_NUMBER}" "$REPO" \
+              > "$telemetry"
             exit 0
           fi
 
-          git commit -m "[skip ci] Codex: self-test telemetry update"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" gh-pages
+          title="[Codex Self-Test] $ts"
+          body="Codex self-test issue created automatically."
 
-      # ---------------------------------------------------------
-      # 9. Summary
-      # ---------------------------------------------------------
-      - name: Summary
-        run: |
-          echo "---------------------------------------"
-          echo "Codex Self-Test completed successfully."
-          echo "Issue URL: ${{ steps.create_issue.outputs.issue_url }}"
-          echo "Telemetry stored at: gh-pages/activity-telemetry/latest.json"
-          echo "---------------------------------------"
+          issue_num=$(
+            gh issue create \
+              --title "$title" \
+              --body "$body" \
+              --label "codex" \
+              --label "codex-selftest" \
+              --milestone "$M" \
+              --json number \
+              --jq '.number'
+          )
+
+          printf \
+            '{"component":"selftest","status":"ok","milestone":"%s",\
+            "issue_number":%s,"timestamp":"%s","run_id":"%s","run_number":"%s","repository":"%s"}' \
+            "$M" "$issue_num" "$ts" "${GITHUB_RUN_ID}" "${GITHUB_RUN_NUMBER}" "$REPO" \
+            > "$telemetry"

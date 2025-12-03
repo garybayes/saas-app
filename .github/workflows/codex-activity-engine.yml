@@ -1,0 +1,172 @@
+---
+"name": "Codex Activity Engine (v3)"
+
+"on":
+  schedule:
+    - cron: "45 */4 * * *"  # runs after supervisor + sync, before telemetry merge
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: read
+
+jobs:
+  activity:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Install GitHub CLI
+        uses: cli/cli@v4
+        with:
+          version: latest
+
+      - name: Configure token
+        run: |
+          if gh auth token >/dev/null 2>&1; then
+            echo "Using gh auth token"
+          else
+            if [ -n "${GH_CI_PAT:-}" ]; then
+              gh auth login --with-token <<< "$GH_CI_PAT"
+            else
+              echo "ERROR: No token available."
+              exit 1
+            fi
+          fi
+
+      - name: Read repo variables
+        id: vars
+        run: |
+          echo "main_ms=${{ vars.CODEX_MAIN_MILESTONE }}" >> "$GITHUB_OUTPUT"
+          echo "dash_ms=${{ vars.CODEX_DASHBOARD_MILESTONE }}" >> "$GITHUB_OUTPUT"
+          echo "main_stale=${{ vars.CODEX_MAIN_STALE_DAYS }}" >> "$GITHUB_OUTPUT"
+          echo "main_esc=${{ vars.CODEX_MAIN_ESCALATION_DAYS }}" >> "$GITHUB_OUTPUT"
+          echo "dash_stale=${{ vars.CODEX_DASHBOARD_STALE_DAYS }}" >> "$GITHUB_OUTPUT"
+          echo "dash_esc=${{ vars.CODEX_DASHBOARD_ESCALATION_DAYS }}" >> "$GITHUB_OUTPUT"
+
+      - name: Run Activity Engine
+        id: engine
+        working-directory: repo
+        run: |
+          OWNER="${GITHUB_REPOSITORY%/*}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+
+          main_ms="${{ steps.vars.outputs.main_ms }}"
+          dash_ms="${{ steps.vars.outputs.dash_ms }}"
+
+          main_stale="${{ steps.vars.outputs.main_stale }}"
+          main_esc="${{ steps.vars.outputs.main_esc }}"
+          dash_stale="${{ steps.vars.outputs.dash_stale }}"
+          dash_esc="${{ steps.vars.outputs.dash_esc }}"
+
+          INTERNAL_MS=6
+
+          # Fetch issues for given milestone using REST API
+          fetch_ms() {
+            local ms=$1
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/$OWNER/$REPO/issues?milestone=$ms&state=all&per_page=100" \
+              --paginate \
+              --jq '.[]'
+          }
+
+          main_raw="$(fetch_ms "$main_ms")"
+          dash_raw="$(fetch_ms "$dash_ms")"
+
+          # Function to compute activity status
+          compute_status() {
+            local updated="$1"
+            local staleth="$2"
+            local escth="$3"
+
+            now=$(date -u +%s)
+            upd=$(date -d "$updated" +%s)
+            age=$(( (now - upd) / 86400 ))
+
+            if [ "$age" -ge "$escth" ]; then
+              echo "escalation"
+            elif [ "$age" -ge "$staleth" ]; then
+              echo "stale"
+            else
+              echo "active"
+            fi
+          }
+
+          analyze_set() {
+            local raw="$1"
+            local staleth="$2"
+            local escth="$3"
+
+            echo "$raw" | jq -c '.' | while read -r issue; do
+              n=$(echo "$issue" | jq -r '.number')
+              ms=$(echo "$issue" | jq -r '.milestone.number')
+              labels=$(echo "$issue" | jq '.labels')
+              updated=$(echo "$issue" | jq -r '.updatedAt')
+
+              # Skip Codex Internal
+              if [ "$ms" = "$INTERNAL_MS" ]; then
+                continue
+              fi
+
+              # Skip self-tests
+              if echo "$labels" | jq -e '.[] | select(.name=="codex-selftest")' >/dev/null 2>&1; then
+                continue
+              fi
+
+              status=$(compute_status "$updated" "$staleth" "$escth")
+              echo "{\"number\":$n,\"updated\":\"$updated\",\"status\":\"$status\"},"
+            done
+          }
+
+          main_block="$(analyze_set "$main_raw" "$main_stale" "$main_esc")"
+          dash_block="$(analyze_set "$dash_raw" "$dash_stale" "$dash_esc")"
+
+          printf '{'                        >  activity.json
+          printf '"main":['                 >> activity.json
+          printf '%s' "$main_block" | sed 's/,$//' >> activity.json
+          printf '],'                       >> activity.json
+          printf '"dashboard":['            >> activity.json
+          printf '%s' "$dash_block" | sed 's/,$//' >> activity.json
+          printf ']}'                       >> activity.json
+
+          echo "summary_path=repo/activity.json" >> "$GITHUB_OUTPUT"
+
+      - name: Write telemetry
+        working-directory: gh-pages
+        run: |
+          ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          outfile="telemetry/activity-${GITHUB_RUN_ID}.json"
+
+          printf '{\n' > "$outfile"
+          printf '  "component": "activity",\n' >> "$outfile"
+          printf '  "status": "ok",\n' >> "$outfile"
+          printf '  "timestamp": "%s",\n' "$ts" >> "$outfile"
+          printf '  "run_id": "%s",\n' "$GITHUB_RUN_ID" >> "$outfile"
+          printf '  "run_number": "%s",\n' "$GITHUB_RUN_NUMBER" >> "$outfile"
+          printf '  "repository": "%s",\n' "$GITHUB_REPOSITORY" >> "$outfile"
+          printf '  "tracks": %s\n' "$(cat repo/activity.json)" >> "$outfile"
+          printf '}\n' >> "$outfile"
+
+      - name: Commit telemetry
+        working-directory: gh-pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add telemetry/
+
+          if git commit -m "Activity telemetry ${GITHUB_RUN_ID}"; then
+            git push
+          else
+            echo "No changes to commit."
+          fi

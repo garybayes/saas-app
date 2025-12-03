@@ -1,0 +1,138 @@
+---
+"name": "Codex Self-Test Cleaner (v3)"
+
+"on":
+  schedule:
+    - cron: "30 2 * * *"  # nightly at 02:30 UTC
+  workflow_dispatch: {}
+
+jobs:
+  codex-cleaner:
+    name: Clean Self-Test Issues and Telemetry
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+      CODEX_SELFTEST_RETAIN: ${{ vars.CODEX_SELFTEST_RETAIN }}
+      CODEX_SELFTEST_MAX_AGE_DAYS: ${{ vars.CODEX_SELFTEST_MAX_AGE_DAYS }}
+      CODEX_TELEMETRY_MAX_AGE_DAYS: ${{ vars.CODEX_TELEMETRY_MAX_AGE_DAYS }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install GitHub CLI
+        uses: cli/cli@v4
+        with:
+          version: latest
+
+      - name: Run Cleaner (REST API)
+        run: |
+          set -euo pipefail
+
+          mkdir -p gh-pages/telemetry
+
+          REPO="$GITHUB_REPOSITORY"
+          OWNER="${REPO%/*}"
+          NAME="${REPO#*/}"
+
+          RETAIN="${CODEX_SELFTEST_RETAIN:-5}"
+          AGE_DAYS="${CODEX_SELFTEST_MAX_AGE_DAYS:-7}"
+          TEL_AGE="${CODEX_TELEMETRY_MAX_AGE_DAYS:-30}"
+
+          # Codex Internal milestone id (from earlier discovery)
+          INTERNAL_MS=6
+
+          echo "Repository: $REPO"
+          echo "Retain: $RETAIN"
+          echo "Max age (days): $AGE_DAYS"
+          echo "Telemetry max age (days): $TEL_AGE"
+
+          # Fetch all self-test issues in Codex Internal via REST API
+          issues_json="$(
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/$OWNER/$NAME/issues?milestone=$INTERNAL_MS&state=all&per_page=100&labels=codex-selftest" \
+              --paginate \
+              --jq '[.[] | {number, createdAt}] | sort_by(.createdAt)'
+          )"
+
+          total="$(echo "$issues_json" | jq 'length')"
+          echo "Total self-test issues found in milestone $INTERNAL_MS: $total"
+
+          declare -a to_close=()
+
+          if [ "$total" -gt 0 ]; then
+            cutoff_ts=$(date -u -d "-$AGE_DAYS days" +"%s")
+            idx=0
+
+            while read -r row; do
+              num=$(echo "$row" | jq -r '.number')
+              created=$(echo "$row" | jq -r '.createdAt')
+
+              remaining=$(( total - idx ))
+              if [ "$remaining" -le "$RETAIN" ]; then
+                idx=$((idx+1))
+                continue
+              fi
+
+              created_ts=$(date -u -d "$created" +"%s")
+
+              if [ "$created_ts" -le "$cutoff_ts" ]; then
+                to_close+=( "$num" )
+              fi
+
+              idx=$((idx+1))
+            done <<< "$(echo "$issues_json" | jq -c '.[]')"
+          fi
+
+          echo "Issues selected for closing: ${#to_close[@]}"
+          if [ "${#to_close[@]}" -gt 0 ]; then
+            for n in "${to_close[@]}"; do
+              echo "Closing self-test issue #$n"
+              gh issue close "$n" \
+                --repo "$OWNER/$NAME" \
+                --comment "Codex Cleaner: closing stale self-test issue."
+            done
+          fi
+
+          # Prune old telemetry files
+          pruned_count="$(
+            find gh-pages/telemetry -type f -mtime "+$TEL_AGE" -print | wc -l \
+              || echo "0"
+          )"
+
+          if [ "$pruned_count" -gt 0 ]; then
+            echo "Pruning $pruned_count telemetry files older than $TEL_AGE days."
+            find gh-pages/telemetry -type f -mtime "+$TEL_AGE" -delete || true
+          else
+            echo "No telemetry files older than $TEL_AGE days."
+          fi
+
+          # Build CSV list of closed issues for telemetry JSON
+          closed_csv=""
+          for n in "${to_close[@]}"; do
+            if [ -n "$closed_csv" ]; then
+              closed_csv="${closed_csv},$n"
+            else
+              closed_csv="$n"
+            fi
+          done
+
+          ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          telemetry="gh-pages/telemetry/cleaner-${GITHUB_RUN_ID}.json"
+
+          {
+            printf '{\n'
+            printf '  "component": "cleaner",\n'
+            printf '  "status": "ok",\n'
+            printf '  "timestamp": "%s",\n' "$ts"
+            printf '  "run_id": "%s",\n' "$GITHUB_RUN_ID"
+            printf '  "run_number": "%s",\n' "$GITHUB_RUN_NUMBER"
+            printf '  "repository": "%s",\n' "$REPO"
+            printf '  "issues_closed": [%s],\n' "$closed_csv"
+            printf '  "telemetry_pruned_count": %s\n' "$pruned_count"
+            printf '}\n'
+          } > "$telemetry"
+
+          echo "Wrote cleaner telemetry: $telemetry"

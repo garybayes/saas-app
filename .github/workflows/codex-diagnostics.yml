@@ -1,137 +1,159 @@
-# yamllint disable rule:truthy
 ---
-name: Codex Diagnostics
+"name": "Codex Diagnostics (v3)"
 
-on:
-  workflow_dispatch:
+"on":
+  schedule:
+    - cron: "50 */6 * * *"  # every 6 hours
+  workflow_dispatch: {}
 
 permissions:
   contents: write
-  actions: read
 
 jobs:
   diagnostics:
-    name: Run Codex Diagnostics
     runs-on: ubuntu-latest
 
-    env:
-      CODEX_PROJECT_URL: ${{ vars.CODEX_PROJECT_URL }}
-      CODEX_PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
-      CODEX_PROJECT_NUMBER: ${{ vars.CODEX_PROJECT_NUMBER }}
-      CODEX_MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
-      CODEX_DASHBOARD_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
-      CODEX_MAIN_STALE_DAYS: ${{ vars.CODEX_MAIN_STALE_DAYS }}
-      CODEX_MAIN_ESCALATE_DAYS: ${{ vars.CODEX_MAIN_ESCALATE_DAYS }}
-      CODEX_DASHBOARD_STALE_DAYS: ${{ vars.CODEX_DASHBOARD_STALE_DAYS }}
-      CODEX_DASHBOARD_ESCALATE_DAYS: ${{ vars.CODEX_DASHBOARD_ESCALATE_DAYS }}
-      CODEX_ACTIVITY_STALE_DAYS: ${{ vars.CODEX_ACTIVITY_STALE_DAYS }}
-      CODEX_ACTIVITY_ESCALATE_DAYS: ${{ vars.CODEX_ACTIVITY_ESCALATE_DAYS }}
-
     steps:
-      - name: Checkout repository
+      - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: gh-pages
+          path: gh-pages
 
-      - name: Verify GitHub CLI
-        run: gh --version
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          path: repo
 
-      - name: Check Repository Variables
+      - name: Install GitHub CLI
+        uses: cli/cli@v4
+        with:
+          version: latest
+
+      - name: Configure token
         run: |
-          echo "Checking Codex required environment variables..."
-          REQUIRED_VARS=(
-            CODEX_PROJECT_URL
-            CODEX_PROJECT_ID
-            CODEX_PROJECT_NUMBER
-            CODEX_MAIN_MILESTONE
-            CODEX_DASHBOARD_MILESTONE
-            CODEX_MAIN_STALE_DAYS
-            CODEX_MAIN_ESCALATE_DAYS
-            CODEX_DASHBOARD_STALE_DAYS
-            CODEX_DASHBOARD_ESCALATE_DAYS
-            CODEX_ACTIVITY_STALE_DAYS
-            CODEX_ACTIVITY_ESCALATE_DAYS
-          )
-
-          EXIT_CODE=0
-          for VAR in "${REQUIRED_VARS[@]}"; do
-            if [[ -z "${!VAR}" ]]; then
-              echo "::error::Missing repository variable: $VAR"
-              EXIT_CODE=1
+          if gh auth token >/dev/null 2>&1; then
+            echo "Using gh auth token"
+          else
+            if [ -n "${GH_CI_PAT:-}" ]; then
+              gh auth login --with-token <<< "$GH_CI_PAT"
             else
-              echo "✔ $VAR is present"
-            fi
-          done
-
-          if [[ $EXIT_CODE -ne 0 ]]; then
-            echo "::error::Missing required variables — fix before running Codex."
-            exit 1
-          fi
-
-      - name: Check gh-pages branch
-        run: |
-          echo "Checking if gh-pages branch exists..."
-          if ! git ls-remote --exit-code origin gh-pages > /dev/null 2>&1; then
-            echo "::error::gh-pages branch does not exist."
-            exit 1
-          fi
-          echo "✔ gh-pages branch exists."
-
-      - name: Checkout gh-pages branch into subdirectory
-        run: |
-          echo "Fetching gh-pages files..."
-          git fetch origin gh-pages
-          mkdir ghp
-          git --work-tree=ghp checkout origin/gh-pages -- .
-
-      - name: Validate telemetry directories
-        run: |
-          echo "Checking telemetry structure inside gh-pages..."
-
-          REQUIRED_DIRS=(
-            "activity-telemetry"
-            "project-telemetry"
-          )
-
-          for DIR in "${REQUIRED_DIRS[@]}"; do
-            if [[ ! -d "ghp/$DIR" ]]; then
-              echo "::error::Missing directory on gh-pages: $DIR"
+              echo "ERROR: No token available."
               exit 1
             fi
-            echo "✔ $DIR exists"
+          fi
+
+      - name: Collect diagnostics
+        id: diag
+        working-directory: repo
+        run: |
+          OWNER="${GITHUB_REPOSITORY%/*}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+
+          # Required variables
+          required_vars=(
+            CODEX_MAIN_MILESTONE
+            CODEX_DASHBOARD_MILESTONE
+            CODEX_SELFTEST_RETAIN
+            CODEX_SELFTEST_MAX_AGE_DAYS
+            CODEX_TELEMETRY_MAX_AGE_DAYS
+            CODEX_MAIN_STALE_DAYS
+            CODEX_MAIN_ESCALATION_DAYS
+            CODEX_DASHBOARD_STALE_DAYS
+            CODEX_DASHBOARD_ESCALATION_DAYS
+          )
+
+          missing_vars=()
+          for v in "${required_vars[@]}"; do
+            if [ -z "${!v:-}" ] && ! gh variable get "$v" >/dev/null 2>&1; then
+              missing_vars+=( "$v" )
+            fi
           done
 
-          if [[ ! -f "ghp/codex-data.json" ]]; then
-            echo "::error::Missing codex-data.json on gh-pages"
-            exit 1
+          # Validate milestones
+          ms_json="$(gh api "/repos/$OWNER/$REPO/milestones")"
+          ms_main=$(echo "$ms_json" | jq -r '.[] | select(.number==env.CODEX_MAIN_MILESTONE|tonumber) | .title')
+          ms_dash=$(echo "$ms_json" | jq -r '.[] | select(.number==env.CODEX_DASHBOARD_MILESTONE|tonumber) | .title')
+
+          # Validate labels
+          labels_json="$(gh api "/repos/$OWNER/$REPO/labels")"
+
+          need_labels=(codex codex-selftest codex-trackmain codex-trackdashboard)
+          missing_labels=()
+
+          for lbl in "${need_labels[@]}"; do
+            if ! echo "$labels_json" | jq -e --arg L "$lbl" '.[] | select(.name==$L)' >/dev/null 2>&1; then
+              missing_labels+=( "$lbl" )
+            fi
+          done
+
+          # Validate project
+          proj_json="$(gh api "/repos/$OWNER/$REPO/projects")"
+          project_ok="true"
+          if ! echo "$proj_json" | jq -e '.[] | select(.name=="Codex Dual-Track Development")' >/dev/null 2>&1; then
+            project_ok="false"
           fi
 
-          echo "✔ codex-data.json exists"
+          # Validate gh-pages structure
+          dash_exists="false"
+          tel_exists="false"
 
-      - name: Validate dashboard directory
-        run: |
-          echo "Checking deployed dashboard directory..."
-
-          if [[ ! -d "ghp/dashboard" ]]; then
-            echo "::error::Missing dashboard directory on gh-pages"
-            exit 1
+          if [ -f "../gh-pages/dashboard/dashboard.json" ]; then
+            dash_exists="true"
           fi
 
-          echo "✔ dashboard directory exists"
-
-      - name: Validate dashboard source (codex/dashboard)
-        run: |
-          echo "Checking source dashboard under main branch..."
-
-          if [[ ! -d "codex/dashboard" ]]; then
-            echo "::error::Missing codex/dashboard source directory"
-            exit 1
+          if [ -d "../gh-pages/telemetry" ]; then
+            tel_exists="true"
           fi
 
-          echo "✔ codex/dashboard source directory exists"
+          # Build diagnostics JSON
+          {
+            printf '{\n'
+            printf '  "component": "diagnostics",\n'
+            printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            printf '  "repository": "%s",\n' "$GITHUB_REPOSITORY"
 
-      - name: Summary
+            printf '  "repo_variables": {\n'
+            printf '    "missing": %s\n' "$(printf '%s\n' "${missing_vars[@]}" | jq -R . | jq -s .)"
+            printf '  },\n'
+
+            printf '  "milestones": {\n'
+            printf '    "main_title": "%s",\n' "$ms_main"
+            printf '    "dashboard_title": "%s"\n' "$ms_dash"
+            printf '  },\n'
+
+            printf '  "labels": {\n'
+            printf '    "missing": %s\n' "$(printf '%s\n' "${missing_labels[@]}" | jq -R . | jq -s .)"
+            printf '  },\n'
+
+            printf '  "project": {\n'
+            printf '    "exists": %s\n' "$project_ok"
+            printf '  },\n'
+
+            printf '  "gh_pages": {\n'
+            printf '    "dashboard_json_exists": %s,\n' "$dash_exists"
+            printf '    "telemetry_folder_exists": %s\n' "$tel_exists"
+            printf '  }\n'
+
+            printf '}\n'
+          } > diagnostics.json
+
+          echo "diag_path=repo/diagnostics.json" >> "$GITHUB_OUTPUT"
+
+      - name: Write diagnostics telemetry
+        working-directory: gh-pages
         run: |
-          echo "----------------------------------------"
-          echo "Codex Diagnostics Completed Successfully"
-          echo "----------------------------------------"
+          cp "../repo/diagnostics.json" "telemetry/diagnostics-${GITHUB_RUN_ID}.json"
+
+      - name: Commit diagnostics telemetry
+        working-directory: gh-pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add telemetry/
+          if git commit -m "Diagnostics telemetry ${GITHUB_RUN_ID}"; then
+            git push
+          else
+            echo "No diagnostic changes."
+          fi

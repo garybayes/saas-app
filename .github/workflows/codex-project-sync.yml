@@ -1,146 +1,206 @@
 ---
-# yamllint disable rule:truthy
-name: Codex Project Sync
+"name": "Codex Project Sync (v8)"
 
-on:
-  workflow_dispatch:
+"on":
   schedule:
-    - cron: "0 * * * *"
+    - cron: "15 */4 * * *"  # every 4 hours + 15 min offset from supervisor
+  workflow_dispatch: {}
 
 permissions:
   contents: write
-  actions: read
-  repository-projects: read
-  issues: read
+  issues: write
+  projects: write
 
 jobs:
-  sync:
+  project_sync:
     runs-on: ubuntu-latest
 
     steps:
-      # --------------------------------------------------
-      # 1. Checkout MAIN for running query scripts
-      # --------------------------------------------------
-      - name: Checkout main
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      # --------------------------------------------------
-      # 2. Enable GitHub CLI
-      # --------------------------------------------------
-      - name: GitHub CLI Version
-        run: gh --version
-        env:
-          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-
-      # --------------------------------------------------
-      # 3. Collect ProjectV2 items (GraphQL pagination)
-      # --------------------------------------------------
-      - name: Fetch project items
-        id: collect
-        env:
-          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-          PROJECT_ID: ${{ vars.CODEX_PROJECT_ID }}
-        run: |
-          QUERY='
-          query($project: ID!, $after: String) {
-            node(id: $project) {
-              ... on ProjectV2 {
-                items(first: 100, after: $after) {
-                  pageInfo {
-                    hasNextPage
-                    endCursor
-                  }
-                  nodes {
-                    id
-                    content {
-                      __typename
-                      ... on Issue {
-                        number
-                        title
-                        labels(first: 20) {
-                          nodes { name }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }'
-
-          items=()
-          after_param=()
-
-          while true; do
-            if [[ -z "${after_param[*]}" ]]; then
-              json=$(gh api graphql -f project="$PROJECT_ID" -f query="$QUERY")
-            else
-              json=$(gh api graphql -f project="$PROJECT_ID" -f query="$QUERY" -f after="${after_param[0]}")
-            fi
-
-            # Extract item nodes
-            new_nodes=$(echo "$json" | jq -c '.data.node.items.nodes[]?')
-            if [[ -n "$new_nodes" ]]; then
-              while IFS= read -r item; do
-                items+=("$item")
-              done <<< "$new_nodes"
-            fi
-
-            hasNext=$(echo "$json" | jq '.data.node.items.pageInfo.hasNextPage')
-            endCursor=$(echo "$json" | jq -r '.data.node.items.pageInfo.endCursor')
-
-            echo "Collected ${#items[@]} items so far..."
-
-            if [[ "$hasNext" != "true" ]]; then
-              break
-            fi
-
-            after_param=("$endCursor")
-          done
-
-          echo "Total items collected: ${#items[@]}"
-
-          printf '%s\n' "${items[@]}" | jq -s '.' > project_items.json
-
-      # --------------------------------------------------
-      # 4. Save file to temporary runner storage
-      # --------------------------------------------------
-      - name: Save file before switching branches
-        run: cp project_items.json "$RUNNER_TEMP/project_items.json"
-
-      # --------------------------------------------------
-      # 5. Checkout gh-pages (this replaces workspace)
-      # --------------------------------------------------
       - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
-          fetch-depth: 0
+          path: gh-pages
 
-      # --------------------------------------------------
-      # 6. Restore file into gh-pages branch
-      # --------------------------------------------------
-      - name: Restore project_items.json
-        run: cp "$RUNNER_TEMP/project_items.json" project_items.json
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          path: repo
 
-      # --------------------------------------------------
-      # 7. Commit file (if changed)
-      # --------------------------------------------------
-      - name: Commit project_items.json to gh-pages
-        env:
-          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+      - name: Install GitHub CLI
+        uses: cli/cli@v4
+        with:
+          version: latest
+
+      - name: Configure token
         run: |
-          git add project_items.json
-
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-            exit 0
+          if gh auth token >/dev/null 2>&1; then
+            echo "Using gh auth token"
+          else
+            if [ -n "${GH_CI_PAT:-}" ]; then
+              gh auth login --with-token <<< "$GH_CI_PAT"
+            else
+              echo "ERROR: No token found."
+              exit 1
+            fi
           fi
 
-          git config user.email "actions@github.com"
-          git config user.name "GitHub Actions"
+      - name: Read repo variables
+        id: vars
+        run: |
+          echo "main_ms=${{ vars.CODEX_MAIN_MILESTONE }}" >> "$GITHUB_OUTPUT"
+          echo "dash_ms=${{ vars.CODEX_DASHBOARD_MILESTONE }}" >> "$GITHUB_OUTPUT"
 
-          git commit -m "[skip ci] Update project_items.json"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" gh-pages
+      - name: Run project sync engine
+        id: sync
+        working-directory: repo
+        run: |
+          OWNER="${GITHUB_REPOSITORY%/*}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+
+          main_ms="${{ steps.vars.outputs.main_ms }}"
+          dash_ms="${{ steps.vars.outputs.dash_ms }}"
+
+          # Milestone 6 = Codex Internal (excluded)
+          INTERNAL_MS=6
+
+          fetch_all() {
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/$OWNER/$REPO/issues?state=all&per_page=100" \
+              --paginate \
+              --jq '.[] | {number, labels, milestone, title}'
+          }
+
+          all="$(fetch_all)"
+
+          corrections_main=0
+          corrections_dash=0
+          corrections_codex=0
+          corrections_project=0
+          declare -a correction_details
+
+          ensure_label() {
+            local labels_json="$1"
+            local wanted="$2"
+            echo "$labels_json" | jq -e --arg w "$wanted" '.[] | select(.name==$w)' >/dev/null 2>&1
+          }
+
+          fix_issue() {
+            local n="$1"
+            local ml="$2"
+            local track="$3"
+
+            echo "Correcting issue #$n → milestone=$ml track=$track"
+
+            gh api \
+              -X PATCH \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/$OWNER/$REPO/issues/$n" \
+              --raw-field milestone="$ml" \
+              --raw-field labels[]=codex \
+              --raw-field labels[]="$track" \
+              >/dev/null
+
+            corrections_project=$((corrections_project+1))
+            correction_details+=("{\"number\":$n,\"changes\":[\"milestone\",\"$track\"]}")
+          }
+
+          # Parse issues
+          echo "$all" | jq -c '.' | while read -r issue; do
+            n=$(echo "$issue" | jq -r '.number')
+            ms=$(echo "$issue" | jq -r '.milestone.number // empty')
+            title=$(echo "$issue" | jq -r '.title')
+            labels=$(echo "$issue" | jq '.labels')
+
+            # Skip Codex Internal
+            if [ "$ms" = "$INTERNAL_MS" ]; then
+              continue
+            fi
+
+            # Skip self-test issues
+            if echo "$labels" | jq -e '.[] | select(.name=="codex-selftest")' >/dev/null 2>&1; then
+              continue
+            fi
+
+            # Ensure codex label
+            if ! ensure_label "$labels" "codex"; then
+              gh api \
+                -X PATCH \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/$OWNER/$REPO/issues/$n" \
+                --raw-field labels[]=codex \
+                >/dev/null
+              corrections_codex=$((corrections_codex+1))
+              correction_details+=("{\"number\":$n,\"changes\":[\"add_codex_label\"]}")
+            fi
+
+            # Determine correct track + milestone
+            if echo "$title" | grep -qi "dashboard"; then
+              track="codex-trackdashboard"
+              ms_target="$dash_ms"
+            else
+              track="codex-trackmain"
+              ms_target="$main_ms"
+            fi
+
+            # Fix track label
+            if ! ensure_label "$labels" "$track"; then
+              gh api \
+                -X PATCH \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/$OWNER/$REPO/issues/$n" \
+                --raw-field labels[]=codex \
+                --raw-field labels[]="$track" \
+                >/dev/null
+              if [ "$track" = "codex-trackmain" ]; then
+                corrections_main=$((corrections_main+1))
+              else
+                corrections_dash=$((corrections_dash+1))
+              fi
+              correction_details+=("{\"number\":$n,\"changes\":[\"track_label_$track\"]}")
+            fi
+
+            # Fix milestone mismatch
+            if [ "$ms" != "$ms_target" ]; then
+              fix_issue "$n" "$ms_target" "$track"
+            fi
+
+          done
+
+          summary="{\"corrections\":{
+            \"codex_label\":$corrections_codex,
+            \"track_main\":$corrections_main,
+            \"track_dashboard\":$corrections_dash,
+            \"project_adjustments\":$corrections_project
+          },\"details\":[${correction_details[*]}]}"
+
+          echo "$summary" > sync.json
+          echo "summary_path=repo/sync.json" >> "$GITHUB_OUTPUT"
+
+      - name: Write telemetry
+        run: |
+          ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          outfile="gh-pages/telemetry/sync-${GITHUB_RUN_ID}.json"
+
+          printf '{\n' > "$outfile"
+          printf '  "component": "sync",\n' >> "$outfile"
+          printf '  "status": "ok",\n' >> "$outfile"
+          printf '  "timestamp": "%s",\n' "$ts" >> "$outfile"
+          printf '  "run_id": "%s",\n' "$GITHUB_RUN_ID" >> "$outfile"
+          printf '  "run_number": "%s",\n' "$GITHUB_RUN_NUMBER" >> "$outfile"
+          printf '  "repository": "%s",\n' "$GITHUB_REPOSITORY" >> "$outfile"
+          printf '  "corrections": %s\n' "$(cat repo/sync.json)" >> "$outfile"
+          printf '}\n' >> "$outfile"
+
+      - name: Commit telemetry
+        working-directory: gh-pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add telemetry/
+          if git commit -m "Project Sync telemetry ${GITHUB_RUN_ID}"; then
+            git push
+          else
+            echo "No changes to commit."
+          fi
