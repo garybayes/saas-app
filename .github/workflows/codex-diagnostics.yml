@@ -81,7 +81,7 @@ jobs:
           done
 
           # Validate project
-          proj_json="$(gh api "/repos/$OWNER/$REPO/projects")"
+          proj_json="$(gh api "/users/$OWNER/projects")"
           project_ok="true"
           if ! echo "$proj_json" | jq -e '.[] | select(.name=="Codex Dual-Track Development")' >/dev/null; then
             project_ok="false"
