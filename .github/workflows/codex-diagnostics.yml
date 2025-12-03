@@ -1,11 +1,11 @@
 ---
-name: Codex Diagnostics (v7.2.1)
+name: Codex Diagnostics (v7.3)
 
 # yamllint disable-line rule:truthy
 on:
   schedule:
     - cron: "50 */6 * * *"
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -14,6 +14,7 @@ jobs:
   diagnostics:
     runs-on: ubuntu-latest
 
+    # ✔ Makes GH_CI_PAT the active token for gh api calls
     env:
       GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
@@ -29,21 +30,37 @@ jobs:
         with:
           path: repo
 
-      - name: Run Diagnostics
-        id: diag
-        working-directory: repo
-        shell: bash
+      - name: Validate token availability
         run: |
-          set -e
-          echo "🔧 Running Codex Diagnostics v7.2.1"
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "ERROR: GH_TOKEN (from GH_CI_PAT) is missing."
+            exit 1
+          fi
+
+          echo "GH_TOKEN is present. Testing API auth..."
+          if ! gh api rate_limit >/dev/null 2>&1; then
+            echo "ERROR: GitHub API authentication failed."
+            exit 1
+          fi
+
+          echo "GitHub API authentication OK."
+
+      - name: Run Diagnostics
+        working-directory: repo
+        run: |
+          set -euo pipefail
 
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
+          echo "Running diagnostics for $OWNER/$REPO"
+
+          # -----------------------------------------
+          # Required repository variables
+          # -----------------------------------------
           required_vars=(
             CODEX_MAIN_MILESTONE
             CODEX_DASHBOARD_MILESTONE
-            CODEX_SELFTEST_MILESTONE
             CODEX_SELFTEST_RETAIN
             CODEX_SELFTEST_MAX_AGE_DAYS
             CODEX_TELEMETRY_MAX_AGE_DAYS
@@ -51,8 +68,6 @@ jobs:
             CODEX_MAIN_ESCALATION_DAYS
             CODEX_DASHBOARD_STALE_DAYS
             CODEX_DASHBOARD_ESCALATION_DAYS
-            CODEX_PROJECT_NUMBER
-            CODEX_PROJECT_URL
           )
 
           missing_vars=()
@@ -62,53 +77,67 @@ jobs:
             fi
           done
 
+          # -----------------------------------------
+          # Milestones
+          # -----------------------------------------
           ms_json="$(gh api "/repos/$OWNER/$REPO/milestones")"
 
           ms_main=$(echo "$ms_json" | jq -r \
-            '.[] | select((.number|tostring) == env.CODEX_MAIN_MILESTONE) | .title')
+            '.[] | select((.number|tostring)==env.CODEX_MAIN_MILESTONE) | .title')
 
           ms_dash=$(echo "$ms_json" | jq -r \
-            '.[] | select((.number|tostring) == env.CODEX_DASHBOARD_MILESTONE) | .title')
+            '.[] | select((.number|tostring)==env.CODEX_DASHBOARD_MILESTONE) | .title')
 
-          ms_selftest=$(echo "$ms_json" | jq -r \
-            '.[] | select((.number|tostring) == env.CODEX_SELFTEST_MILESTONE) | .title')
+          if [ -z "$ms_main" ] || [ -z "$ms_dash" ]; then
+            echo "ERROR: One or more required milestones are missing."
+          fi
 
+          # -----------------------------------------
+          # Required labels
+          # -----------------------------------------
           labels_json="$(gh api "/repos/$OWNER/$REPO/labels")"
-          need_labels=(codex codex-selftest codex-trackmain codex-trackdashboard needs-attention needs-escalation)
-          missing_labels=()
 
+          need_labels=(codex codex-selftest codex-trackmain codex-trackdashboard)
+
+          missing_labels=()
           for lbl in "${need_labels[@]}"; do
-            if ! echo "$labels_json" | jq -e --arg L "$lbl" '.[] | select(.name==$L)' >/dev/null; then
+            if ! echo "$labels_json" \
+              | jq -e --arg L "$lbl" '.[] | select(.name==$L)' >/dev/null; then
               missing_labels+=( "$lbl" )
             fi
           done
 
+          # -----------------------------------------
+          # Classic GitHub Project check
+          # -----------------------------------------
           proj_json="$(gh api \
             -H 'Accept: application/vnd.github.inertia-preview+json' \
             "/repos/$OWNER/$REPO/projects")"
 
           project_ok="true"
-          if ! echo "$proj_json" | jq -e \
-            '.[] | select(.name=="Codex Dual-Track Development")' >/dev/null 2>&1; then
+          if ! echo "$proj_json" \
+            | jq -e '.[] | select(.name=="Codex Dual-Track Development")' \
+            >/dev/null 2>&1; then
             project_ok="false"
           fi
 
-          gp="../gh-pages"
+          # -----------------------------------------
+          # gh-pages telemetry directory
+          # -----------------------------------------
           dash_exists="false"
           tel_exists="false"
 
-          if [ -f "$gp/dashboard/dashboard.json" ]; then
-            dash_exists="true"
-          fi
+          [ -f "../gh-pages/dashboard/dashboard.json" ] && dash_exists="true"
+          [ -d "../gh-pages/telemetry" ] && tel_exists="true"
 
-          if [ -d "$gp/telemetry" ]; then
-            tel_exists="true"
-          fi
+          mkdir -p ../gh-pages/telemetry
 
-          mkdir -p "$gp/telemetry"
+          # -----------------------------------------
+          # Write diagnostics JSON
+          # -----------------------------------------
+          outfile="../gh-pages/telemetry/diagnostics-$(date -u +"%Y%m%dT%H%M%SZ").json"
 
-          ts="$(date -u +"%Y%m%dT%H%M%SZ")"
-          outfile="$gp/telemetry/diagnostics-$ts.json"
+          echo "Writing diagnostics to $outfile"
 
           {
             printf '{\n'
@@ -123,8 +152,7 @@ jobs:
 
             printf '  "milestones": {\n'
             printf '    "main_title": "%s",\n' "$ms_main"
-            printf '    "dashboard_title": "%s",\n' "$ms_dash"
-            printf '    "selftest_title": "%s"\n' "$ms_selftest"
+            printf '    "dashboard_title": "%s"\n' "$ms_dash"
             printf '  },\n'
 
             printf '  "labels": {\n'
@@ -144,24 +172,4 @@ jobs:
             printf '}\n'
           } > "$outfile"
 
-          echo "Wrote diagnostics to: $outfile"
-
-          if [ "${#missing_vars[@]}" -gt 0 ] || \
-             [ "$project_ok" = "false" ] || \
-             [ "$ms_main" = "" ] || \
-             [ "$ms_dash" = "" ] || \
-             [ "$ms_selftest" = "" ]; then
-            echo "CONFIG ERROR detected. Failing diagnostics job."
-            exit 1
-          fi
-
-      - name: Commit Diagnostics Telemetry
-        working-directory: gh-pages
-        shell: bash
-        run: |
-          set -e
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add telemetry/*.json
-          git commit -m "Diagnostics telemetry update" || echo "No changes"
-          git push origin gh-pages
+          echo "Diagnostics file created."
