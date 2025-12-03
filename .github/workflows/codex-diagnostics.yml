@@ -1,11 +1,11 @@
 ---
-name: Codex Diagnostics (v7)
+name: Codex Diagnostics (v7.2.1)
 
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "50 */6 * * *"  # every 6 hours
-  workflow_dispatch: {}
+    - cron: "50 */6 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -29,23 +29,21 @@ jobs:
         with:
           path: repo
 
-      - name: Run Codex Diagnostics
-        id: run_diagnostics
+      - name: Run Diagnostics
+        id: diag
         working-directory: repo
+        shell: bash
         run: |
           set -e
+          echo "🔧 Running Codex Diagnostics v7.2.1"
 
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
-          config_error="false"
-
-          #
-          # 1. Required repo variables
-          #
           required_vars=(
             CODEX_MAIN_MILESTONE
             CODEX_DASHBOARD_MILESTONE
+            CODEX_SELFTEST_MILESTONE
             CODEX_SELFTEST_RETAIN
             CODEX_SELFTEST_MAX_AGE_DAYS
             CODEX_TELEMETRY_MAX_AGE_DAYS
@@ -53,203 +51,64 @@ jobs:
             CODEX_MAIN_ESCALATION_DAYS
             CODEX_DASHBOARD_STALE_DAYS
             CODEX_DASHBOARD_ESCALATION_DAYS
+            CODEX_PROJECT_NUMBER
+            CODEX_PROJECT_URL
           )
 
           missing_vars=()
           for v in "${required_vars[@]}"; do
-            if ! gh variable get "$v" --repo "$OWNER/$REPO" >/dev/null 2>&1; then
+            if ! gh variable get "$v" >/dev/null 2>&1; then
               missing_vars+=( "$v" )
             fi
           done
 
-          if [ "${#missing_vars[@]}" -gt 0 ]; then
-            config_error="true"
-          fi
-
-          #
-          # 2. Milestone resolution
-          #
-          main_ms="$(gh variable get CODEX_MAIN_MILESTONE -q 2>/dev/null || echo "")"
-          dash_ms="$(gh variable get CODEX_DASHBOARD_MILESTONE -q 2>/dev/null || echo "")"
-
-          # Self-test milestone: optional override, default "Codex Internal"
-          selftest_ms_title="$(gh variable get CODEX_SELFTEST_MILESTONE -q 2>/dev/null || echo "Codex Internal")"
-
           ms_json="$(gh api "/repos/$OWNER/$REPO/milestones")"
 
-          ms_main_title="$(
-            echo "$ms_json" | jq -r --arg N "$main_ms" \
-              '.[] | select((.number|tostring)==$N) | .title'
-          )"
+          ms_main=$(echo "$ms_json" | jq -r \
+            '.[] | select((.number|tostring) == env.CODEX_MAIN_MILESTONE) | .title')
 
-          ms_dash_title="$(
-            echo "$ms_json" | jq -r --arg N "$dash_ms" \
-              '.[] | select((.number|tostring)==$N) | .title'
-          )"
+          ms_dash=$(echo "$ms_json" | jq -r \
+            '.[] | select((.number|tostring) == env.CODEX_DASHBOARD_MILESTONE) | .title')
 
-          ms_self_number="$(
-            echo "$ms_json" | jq -r --arg T "$selftest_ms_title" \
-              '.[] | select(.title==$T) | .number'
-          )"
+          ms_selftest=$(echo "$ms_json" | jq -r \
+            '.[] | select((.number|tostring) == env.CODEX_SELFTEST_MILESTONE) | .title')
 
-          if [ -z "$main_ms" ] || [ -z "$ms_main_title" ] || [ "$ms_main_title" = "null" ]; then
-            config_error="true"
-          fi
-
-          if [ -z "$dash_ms" ] || [ -z "$ms_dash_title" ] || [ "$ms_dash_title" = "null" ]; then
-            config_error="true"
-          fi
-
-          if [ -z "$ms_self_number" ] || [ "$ms_self_number" = "null" ]; then
-            config_error="true"
-          fi
-
-          #
-          # 3. Mandatory labels exist
-          #
           labels_json="$(gh api "/repos/$OWNER/$REPO/labels")"
-          need_labels=(codex codex-selftest codex-trackmain codex-trackdashboard)
+          need_labels=(codex codex-selftest codex-trackmain codex-trackdashboard needs-attention needs-escalation)
           missing_labels=()
 
           for lbl in "${need_labels[@]}"; do
-            if ! echo "$labels_json" | jq -e --arg L "$lbl" '.[] | select(.name==$L)' >/dev/null 2>&1; then
+            if ! echo "$labels_json" | jq -e --arg L "$lbl" '.[] | select(.name==$L)' >/dev/null; then
               missing_labels+=( "$lbl" )
             fi
           done
 
-          if [ "${#missing_labels[@]}" -gt 0 ]; then
-            config_error="true"
+          proj_json="$(gh api \
+            -H 'Accept: application/vnd.github.inertia-preview+json' \
+            "/repos/$OWNER/$REPO/projects")"
+
+          project_ok="true"
+          if ! echo "$proj_json" | jq -e \
+            '.[] | select(.name=="Codex Dual-Track Development")' >/dev/null 2>&1; then
+            project_ok="false"
           fi
 
-          #
-          # 4. Track consistency (issue-based)
-          #
-          # We only look at codex-labelled issues (the Codex universe)
-          all_codex_issues="$(gh api "/repos/$OWNER/$REPO/issues?state=all&labels=codex&per_page=100")"
-
-          # Normalize milestone numbers for comparison (strings)
-          main_ms_s="$main_ms"
-          dash_ms_s="$dash_ms"
-          self_ms_s="$ms_self_number"
-
-          # Helper function via jq: pre-compute arrays
-          main_label_wrong_ms="$(
-            echo "$all_codex_issues" | jq -c --arg L "codex-trackmain" --arg N "$main_ms_s" '
-              [ .[]
-                | select((.labels | map(.name) | index($L)) != null)
-                | select((.milestone.number // -1 | tostring) != $N)
-                | .number
-              ]'
-          )"
-
-          main_ms_missing_label="$(
-            echo "$all_codex_issues" | jq -c --arg L "codex-trackmain" --arg N "$main_ms_s" '
-              [ .[]
-                | select((.milestone.number // -1 | tostring) == $N)
-                | select((.labels | map(.name) | index($L)) == null)
-                | .number
-              ]'
-          )"
-
-          dash_label_wrong_ms="$(
-            echo "$all_codex_issues" | jq -c --arg L "codex-trackdashboard" --arg N "$dash_ms_s" '
-              [ .[]
-                | select((.labels | map(.name) | index($L)) != null)
-                | select((.milestone.number // -1 | tostring) != $N)
-                | .number
-              ]'
-          )"
-
-          dash_ms_missing_label="$(
-            echo "$all_codex_issues" | jq -c --arg L "codex-trackdashboard" --arg N "$dash_ms_s" '
-              [ .[]
-                | select((.milestone.number // -1 | tostring) == $N)
-                | select((.labels | map(.name) | index($L)) == null)
-                | .number
-              ]'
-          )"
-
-          self_label_wrong_ms="$(
-            echo "$all_codex_issues" | jq -c --arg L "codex-selftest" --arg N "$self_ms_s" '
-              [ .[]
-                | select((.labels | map(.name) | index($L)) != null)
-                | select((.milestone.number // -1 | tostring) != $N)
-                | .number
-              ]'
-          )"
-
-          self_ms_missing_label="$(
-            echo "$all_codex_issues" | jq -c --arg L "codex-selftest" --arg N "$self_ms_s" '
-              [ .[]
-                | select((.milestone.number // -1 | tostring) == $N)
-                | select((.labels | map(.name) | index($L)) == null)
-                | .number
-              ]'
-          )"
-
-          multi_track="$(
-            echo "$all_codex_issues" | jq -c '
-              [ .[]
-                | . as $i
-                | ([$i.labels[].name]
-                  | map(select(.=="codex-trackmain" or .=="codex-trackdashboard" or .=="codex-selftest"))
-                  ) as $tracks
-                | select($tracks | length > 1)
-                | $i.number
-              ]'
-          )"
-
-          self_in_other_ms="$(
-            echo "$all_codex_issues" | jq -c --arg N "$self_ms_s" '
-              [ .[]
-                | select((.labels | map(.name) | index("codex-selftest")) != null)
-                | select((.milestone.number // -1 | tostring) != $N)
-                | .number
-              ]'
-          )"
-
-          nonself_in_self_ms="$(
-            echo "$all_codex_issues" | jq -c --arg N "$self_ms_s" '
-              [ .[]
-                | select((.milestone.number // -1 | tostring) == $N)
-                | select((.labels | map(.name) | index("codex-selftest")) == null)
-                | .number
-              ]'
-          )"
-
-          trackless="$(
-            echo "$all_codex_issues" | jq -c '
-              [ .[]
-                | . as $i
-                | ([$i.labels[].name]
-                  | map(select(.=="codex-trackmain" or .=="codex-trackdashboard" or .=="codex-selftest"))
-                  ) as $tracks
-                | select($tracks | length == 0)
-                | $i.number
-              ]'
-          )"
-
-          #
-          # 5. gh-pages structure
-          #
+          gp="../gh-pages"
           dash_exists="false"
           tel_exists="false"
 
-          if [ -f "../gh-pages/dashboard/dashboard.json" ]; then
+          if [ -f "$gp/dashboard/dashboard.json" ]; then
             dash_exists="true"
           fi
 
-          if [ -d "../gh-pages/telemetry" ]; then
+          if [ -d "$gp/telemetry" ]; then
             tel_exists="true"
           fi
 
-          mkdir -p ../gh-pages/telemetry
+          mkdir -p "$gp/telemetry"
 
-          #
-          # 6. Write diagnostics telemetry JSON
-          #
           ts="$(date -u +"%Y%m%dT%H%M%SZ")"
-          outfile="../gh-pages/telemetry/diagnostics-${ts}.json"
+          outfile="$gp/telemetry/diagnostics-$ts.json"
 
           {
             printf '{\n'
@@ -257,48 +116,26 @@ jobs:
             printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
             printf '  "repository": "%s",\n' "$GITHUB_REPOSITORY"
 
-            # Config-level status
-            printf '  "config": {\n'
-            printf '    "config_error": %s,\n' "$( [ "$config_error" = "true" ] && echo "true" || echo "false" )"
-            printf '    "missing_variables": %s,\n' \
+            printf '  "repo_variables": {\n'
+            printf '    "missing": %s\n' \
               "$(printf '%s\n' "${missing_vars[@]}" | jq -R . | jq -s .)"
-            printf '    "missing_labels": %s,\n' \
+            printf '  },\n'
+
+            printf '  "milestones": {\n'
+            printf '    "main_title": "%s",\n' "$ms_main"
+            printf '    "dashboard_title": "%s",\n' "$ms_dash"
+            printf '    "selftest_title": "%s"\n' "$ms_selftest"
+            printf '  },\n'
+
+            printf '  "labels": {\n'
+            printf '    "missing": %s\n' \
               "$(printf '%s\n' "${missing_labels[@]}" | jq -R . | jq -s .)"
-            printf '    "milestones": {\n'
-            printf '      "main": {"number": "%s", "title": "%s"},\n' "$main_ms_s" "$ms_main_title"
-            printf '      "dashboard": {"number": "%s", "title": "%s"},\n' "$dash_ms_s" "$ms_dash_title"
-            printf '      "selftest": {"number": "%s", "title": "%s"}\n' "$self_ms_s" "$selftest_ms_title"
-            printf '    }\n'
             printf '  },\n'
 
-            # Track consistency
-            printf '  "tracks": {\n'
-            printf '    "main": {\n'
-            printf '      "label": "codex-trackmain",\n'
-            printf '      "issues_with_label_wrong_milestone": %s,\n' "$main_label_wrong_ms"
-            printf '      "issues_in_milestone_missing_label": %s\n' "$main_ms_missing_label"
-            printf '    },\n'
-            printf '    "dashboard": {\n'
-            printf '      "label": "codex-trackdashboard",\n'
-            printf '      "issues_with_label_wrong_milestone": %s,\n' "$dash_label_wrong_ms"
-            printf '      "issues_in_milestone_missing_label": %s\n' "$dash_ms_missing_label"
-            printf '    },\n'
-            printf '    "selftest": {\n'
-            printf '      "label": "codex-selftest",\n'
-            printf '      "issues_with_label_wrong_milestone": %s,\n' "$self_label_wrong_ms"
-            printf '      "issues_in_milestone_missing_label": %s\n' "$self_ms_missing_label"
-            printf '    }\n'
+            printf '  "project": {\n'
+            printf '    "exists": "%s"\n' "$project_ok"
             printf '  },\n'
 
-            # Contamination + trackless
-            printf '  "contamination": {\n'
-            printf '    "multi_track_labels": %s,\n' "$multi_track"
-            printf '    "selftest_in_other_milestones": %s,\n' "$self_in_other_ms"
-            printf '    "nonself_in_selftest_milestone": %s,\n' "$nonself_in_self_ms"
-            printf '    "trackless_issues": %s\n' "$trackless"
-            printf '  },\n'
-
-            # gh-pages structure
             printf '  "gh_pages": {\n'
             printf '    "dashboard_exists": "%s",\n' "$dash_exists"
             printf '    "telemetry_exists": "%s"\n' "$tel_exists"
@@ -309,17 +146,22 @@ jobs:
 
           echo "Wrote diagnostics to: $outfile"
 
-          # Hybrid failure mode: hard fail on config errors, soft on track inconsistencies
-          if [ "$config_error" = "true" ]; then
+          if [ "${#missing_vars[@]}" -gt 0 ] || \
+             [ "$project_ok" = "false" ] || \
+             [ "$ms_main" = "" ] || \
+             [ "$ms_dash" = "" ] || \
+             [ "$ms_selftest" = "" ]; then
             echo "CONFIG ERROR detected. Failing diagnostics job."
             exit 1
           fi
 
-      - name: Commit diagnostics telemetry
+      - name: Commit Diagnostics Telemetry
         working-directory: gh-pages
+        shell: bash
         run: |
+          set -e
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add telemetry/*.json
-          git commit -m "Codex Diagnostics: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" || echo "No diagnostics changes to commit."
+          git commit -m "Diagnostics telemetry update" || echo "No changes"
           git push origin gh-pages
