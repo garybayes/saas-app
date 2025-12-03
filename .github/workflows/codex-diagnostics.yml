@@ -66,8 +66,8 @@ jobs:
 
           # Validate milestones
           ms_json="$(gh api "/repos/$OWNER/$REPO/milestones")"
-          ms_main=$(echo "$ms_json" | jq -r '.[] | select(.number==env.CODEX_MAIN_MILESTONE|tonumber) | .title')
-          ms_dash=$(echo "$ms_json" | jq -r '.[] | select(.number==env.CODEX_DASHBOARD_MILESTONE|tonumber) | .title')
+          ms_main=$(echo "$ms_json" | jq -r '.[] | select((.number|tostring) == env.CODEX_MAIN_MILESTONE) | .title')
+          ms_dash=$(echo "$ms_json" | jq -r '.[] | select((.number|tostring) == env.CODEX_DASHBOARD_MILESTONE) | .title')
 
           # Validate mandatory labels
           labels_json="$(gh api "/repos/$OWNER/$REPO/labels")"
