@@ -1,9 +1,9 @@
 ---
-"name": "Codex Diagnostics (v3)"
+name: Codex Diagnostics (v4)
 
-"on":
+on:
   schedule:
-    - cron: "50 */6 * * *"  # every 6 hours
+    - cron: "50 */6 * * *"   # every 6 hours
   workflow_dispatch: {}
 
 permissions:
@@ -12,6 +12,9 @@ permissions:
 jobs:
   diagnostics:
     runs-on: ubuntu-latest
+    env:
+      GH_CI_PAT: ${{ secrets.GH_CI_PAT }}
+      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
     steps:
       - name: Checkout gh-pages
@@ -25,18 +28,13 @@ jobs:
         with:
           path: repo
 
-
-      - name: Configure token
+      - name: Authenticate GitHub CLI
         run: |
-          if gh auth token >/dev/null 2>&1; then
-            echo "Using gh auth token"
+          if [ -n "${GH_CI_PAT:-}" ]; then
+            echo "$GH_CI_PAT" | gh auth login --with-token
           else
-            if [ -n "${GH_CI_PAT:-}" ]; then
-              gh auth login --with-token <<< "$GH_CI_PAT"
-            else
-              echo "ERROR: No token available."
-              exit 1
-            fi
+            echo "ERROR: GH_CI_PAT secret is missing or empty."
+            exit 1
           fi
 
       - name: Collect diagnostics
@@ -46,7 +44,7 @@ jobs:
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
-          # Required variables
+          # Required repo variables
           required_vars=(
             CODEX_MAIN_MILESTONE
             CODEX_DASHBOARD_MILESTONE
@@ -61,7 +59,7 @@ jobs:
 
           missing_vars=()
           for v in "${required_vars[@]}"; do
-            if [ -z "${!v:-}" ] && ! gh variable get "$v" >/dev/null 2>&1; then
+            if ! gh variable get "$v" >/dev/null 2>&1; then
               missing_vars+=( "$v" )
             fi
           done
@@ -71,14 +69,13 @@ jobs:
           ms_main=$(echo "$ms_json" | jq -r '.[] | select(.number==env.CODEX_MAIN_MILESTONE|tonumber) | .title')
           ms_dash=$(echo "$ms_json" | jq -r '.[] | select(.number==env.CODEX_DASHBOARD_MILESTONE|tonumber) | .title')
 
-          # Validate labels
+          # Validate mandatory labels
           labels_json="$(gh api "/repos/$OWNER/$REPO/labels")"
-
           need_labels=(codex codex-selftest codex-trackmain codex-trackdashboard)
           missing_labels=()
 
           for lbl in "${need_labels[@]}"; do
-            if ! echo "$labels_json" | jq -e --arg L "$lbl" '.[] | select(.name==$L)' >/dev/null 2>&1; then
+            if ! echo "$labels_json" | jq -e --arg L "$lbl" '.[] | select(.name==$L)' >/dev/null; then
               missing_labels+=( "$lbl" )
             fi
           done
@@ -86,7 +83,7 @@ jobs:
           # Validate project
           proj_json="$(gh api "/repos/$OWNER/$REPO/projects")"
           project_ok="true"
-          if ! echo "$proj_json" | jq -e '.[] | select(.name=="Codex Dual-Track Development")' >/dev/null 2>&1; then
+          if ! echo "$proj_json" | jq -e '.[] | select(.name=="Codex Dual-Track Development")' >/dev/null; then
             project_ok="false"
           fi
 
@@ -102,7 +99,7 @@ jobs:
             tel_exists="true"
           fi
 
-          # Build diagnostics JSON
+          # Write diagnostics JSON
           {
             printf '{\n'
             printf '  "component": "diagnostics",\n'
@@ -123,33 +120,25 @@ jobs:
             printf '  },\n'
 
             printf '  "project": {\n'
-            printf '    "exists": %s\n' "$project_ok"
+            printf '    "exists": "%s"\n' "$project_ok"
             printf '  },\n'
 
             printf '  "gh_pages": {\n'
-            printf '    "dashboard_json_exists": %s,\n' "$dash_exists"
-            printf '    "telemetry_folder_exists": %s\n' "$tel_exists"
+            printf '    "dashboard_exists": "%s",\n' "$dash_exists"
+            printf '    "telemetry_exists": "%s"\n' "$tel_exists"
             printf '  }\n'
 
             printf '}\n'
-          } > diagnostics.json
-
-          echo "diag_path=repo/diagnostics.json" >> "$GITHUB_OUTPUT"
-
-      - name: Write diagnostics telemetry
-        working-directory: gh-pages
-        run: |
-          cp "../repo/diagnostics.json" "telemetry/diagnostics-${GITHUB_RUN_ID}.json"
+          } > "../gh-pages/telemetry/diagnostics-$(date -u +"%Y%m%dT%H%M%SZ").json"
 
       - name: Commit diagnostics telemetry
         working-directory: gh-pages
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email "github-actions@github.com"
+          git config user.name "github-actions"
+          git add telemetry/*.json
+          git commit -m "Codex Diagnostics Update" || true
 
-          git add telemetry/
-          if git commit -m "Diagnostics telemetry ${GITHUB_RUN_ID}"; then
-            git push
-          else
-            echo "No diagnostic changes."
-          fi
+      - name: Push gh-pages
+        working-directory: gh-pages
+        run: git push origin gh-pages
