@@ -76,15 +76,14 @@ jobs:
             fi
           done
 
-          # Validate repo-level project (classic GitHub Projects API)
-          proj_json="$(gh api \
-            -H 'Accept: application/vnd.github.inertia-preview+json' \
-            "/repos/$OWNER/$REPO/projects")"
+          # Validate presence of Codex project via issue project items
+          project_ok="false"
 
-          project_ok="true"
-          if ! echo "$proj_json" | jq -e \
-            '.[] | select(.name=="Codex Dual-Track Development")' >/dev/null 2>&1; then
-            project_ok="false"
+          codex_issue="$(gh api \
+            "/repos/$OWNER/$REPO/issues?labels=codex&state=all&per_page=1")"
+
+          if echo "$codex_issue" | jq -e '.[0].projectItems | length > 0' >/dev/null 2>&1; then
+            project_ok="true"
           fi
 
           # Validate gh-pages structure
