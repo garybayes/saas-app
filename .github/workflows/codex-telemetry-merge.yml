@@ -1,10 +1,10 @@
 ---
-name: "Codex Telemetry Merge (v6)"
+name: "Codex Telemetry Merge (v7)"
 
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "30 */4 * * *"  # run after supervisor + sync + activity
+    - cron: "30 */4 * * *"  # after supervisor + sync + activity
   workflow_dispatch: {}
 
 permissions:
@@ -21,71 +21,77 @@ jobs:
           ref: gh-pages
           path: gh-pages
 
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          path: repo
 
       - name: Configure token
+        env:
+          GH_CI_PAT: ${{ secrets.GH_CI_PAT }}
         run: |
-          if gh auth token >/dev/null 2>&1; then
-            echo "Using gh auth token"
-          else
-            if [ -n "${GH_CI_PAT:-}" ]; then
-              gh auth login --with-token <<< "$GH_CI_PAT"
-            else
-              echo "ERROR: No token found."
-              exit 1
-            fi
+          set -euo pipefail
+
+          echo "Unsetting system GH_TOKEN so workflow can use GH_CI_PAT…"
+          unset GH_TOKEN || true
+
+          if [ -z "${GH_CI_PAT:-}" ]; then
+            echo "ERROR: GH_CI_PAT secret missing."
+            exit 1
           fi
 
-      - name: Collect telemetry files
-        id: collect
+          echo "$GH_CI_PAT" | gh auth login --with-token
+          echo "Authenticated using GH_CI_PAT."
+
+      - name: Merge Telemetry
         working-directory: gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
         run: |
-          mkdir -p dashboard
+          set -euo pipefail
 
-          SUPERVISOR=$(ls telemetry/supervisor-*.json 2>/dev/null | sort -V | tail -1)
-          CLEANER=$(ls telemetry/cleaner-*.json 2>/dev/null | sort -V | tail -1)
-          SELFTEST=$(ls telemetry/self-test-*.json 2>/dev/null | sort -V | tail -1)
-          SYNC=$(ls telemetry/sync-*.json 2>/dev/null | sort -V | tail -1)
-          ACTIVITY=$(ls telemetry/activity-*.json 2>/dev/null | sort -V | tail -1)
+          echo "Running Codex Telemetry Merge (v7)…"
 
-          echo "supervisor=$SUPERVISOR" >> "$GITHUB_OUTPUT"
-          echo "cleaner=$CLEANER"       >> "$GITHUB_OUTPUT"
-          echo "selftest=$SELFTEST"     >> "$GITHUB_OUTPUT"
-          echo "sync=$SYNC"             >> "$GITHUB_OUTPUT"
-          echo "activity=$ACTIVITY"     >> "$GITHUB_OUTPUT"
+          mkdir -p telemetry/merged
 
-      - name: Merge telemetry into dashboard.json
+          timestamp="$(date -u +"%Y%m%dT%H%M%SZ")"
+          outfile="telemetry/merged/telemetry-merged-$timestamp.json"
+
+          echo "Collecting telemetry files…"
+
+          # Gather all JSON telemetry files
+          files=$(find telemetry -maxdepth 1 -type f -name '*.json' | sort)
+
+          if [ -z "$files" ]; then
+            echo "No telemetry files found — nothing to merge."
+            exit 0
+          fi
+
+          echo "Merging $(echo "$files" | wc -l) files…"
+
+          # Merge every JSON object into a single JSON array
+          jq -s '.' $files > "$outfile"
+
+          echo "Merged telemetry written to $outfile"
+
+      - name: Commit Merged Telemetry
         working-directory: gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
         run: |
-          sup="${{ steps.collect.outputs.supervisor }}"
-          cln="${{ steps.collect.outputs.cleaner }}"
-          st="${{ steps.collect.outputs.selftest }}"
-          sync="${{ steps.collect.outputs.sync }}"
-          act="${{ steps.collect.outputs.activity }}"
+          set -euo pipefail
 
-          # Build JSON structure using jq
-          jq -n \
-            --argfile sup "$sup" \
-            --argfile cl "$cln" \
-            --argfile st "$st" \
-            --argfile sy "$sync" \
-            --argfile ac "$act" \
-            '{
-              supervisor: $sup,
-              cleaner:    $cl,
-              selftest:   $st,
-              sync:       $sy,
-              activity:   $ac
-            }' > dashboard/dashboard.json
-
-      - name: Commit and push dashboard
-        working-directory: gh-pages
-        run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add dashboard/dashboard.json
 
-          if git commit -m "Update Codex dashboard ${GITHUB_RUN_ID}"; then
-            git push
-          else
-            echo "No dashboard changes."
+          git add telemetry/merged/*.json
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
           fi
+
+          git commit -m "Codex Telemetry Merge update"
+          git push origin gh-pages
+
+          echo "Merged telemetry committed and pushed."
