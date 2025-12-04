@@ -1,0 +1,83 @@
+[
+  {
+    "component": "diagnostics",
+    "timestamp": "2025-12-03T19:49:02Z",
+    "repository": "garybayes/saas-app",
+    "repo_variables": {
+      "missing": [
+        "CODEX_MAIN_ESCALATION_DAYS",
+        "CODEX_DASHBOARD_ESCALATION_DAYS"
+      ]
+    },
+    "milestones": {
+      "main_title": "",
+      "dashboard_title": ""
+    },
+    "labels": {
+      "missing": [
+        ""
+      ]
+    },
+    "project": {
+      "exists": "false"
+    },
+    "gh_pages": {
+      "dashboard_exists": "false",
+      "telemetry_exists": "false"
+    }
+  },
+  {
+    "component": "diagnostics",
+    "timestamp": "2025-12-03T19:59:34Z",
+    "repository": "garybayes/saas-app",
+    "repo_variables": {
+      "missing": [
+        "CODEX_MAIN_ESCALATION_DAYS",
+        "CODEX_DASHBOARD_ESCALATION_DAYS"
+      ]
+    },
+    "milestones": {
+      "main_title": "",
+      "dashboard_title": ""
+    },
+    "labels": {
+      "missing": [
+        ""
+      ]
+    },
+    "project": {
+      "exists": "false"
+    },
+    "gh_pages": {
+      "dashboard_exists": "false",
+      "telemetry_exists": "true"
+    }
+  },
+  {
+    "component": "diagnostics",
+    "timestamp": "2025-12-03T20:11:36Z",
+    "repository": "garybayes/saas-app",
+    "repo_variables": {
+      "missing": [
+        "CODEX_MAIN_ESCALATION_DAYS",
+        "CODEX_DASHBOARD_ESCALATION_DAYS"
+      ]
+    },
+    "milestones": {
+      "main_title": "",
+      "dashboard_title": ""
+    },
+    "labels": {
+      "missing": [
+        ""
+      ]
+    },
+    "project": {
+      "exists": "false"
+    },
+    "gh_pages": {
+      "dashboard_exists": "false",
+      "telemetry_exists": "true"
+    }
+  }
+]
