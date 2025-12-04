@@ -5,63 +5,29 @@ name: Codex Auto-Assign
 on:
   issues:
     types: [opened, edited]
+  workflow_dispatch: {}
 
 permissions:
-  contents: read
   issues: write
+  contents: read
 
 jobs:
   autoassign:
     runs-on: ubuntu-latest
-
-    env:
-      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-
     steps:
-
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Auto-Assign Codex Label + Milestone
-        id: process
+      - name: Determine issue data
+        id: issue
         run: |
-          OWNER="${GITHUB_REPOSITORY%/*}"
-          REPO="${GITHUB_REPOSITORY#*/}"
-          ISSUE="${{ github.event.issue.number }}"
+          NUMBER="${{ github.event.issue.number }}"
+          TITLE="${{ github.event.issue.title }}"
+          BODY="${{ github.event.issue.body }}"
 
-          echo "Processing issue #$ISSUE"
+          echo "NUMBER=$NUMBER"
+          echo "TITLE=$TITLE"
 
-          #
-          # Detect if Codex issue
-          #
-          ISSUE_JSON="$(gh api "/repos/$OWNER/$REPO/issues/$ISSUE")"
-
-          TITLE="$(echo "$ISSUE_JSON" | jq -r '.title')"
-
-          # Codex issues begin with "Codex:"
-          if ! echo "$TITLE" | grep -qi '^Codex:'; then
-            echo "Not a Codex issue — skipping."
-            exit 0
-          fi
-
-          #
-          # Set labels
-          #
-          gh issue edit "$ISSUE" \
-            --add-label "codex" \
-            --add-label "codex-trackmain"
-
-          #
-          # Set milestone automatically (Codex Internal)
-          #
-          COD_MILE="$(gh api "/repos/$OWNER/$REPO/milestones" \
-            | jq -r '.[] | select(.title=="Codex Internal") | .number')"
-
-          if [ -n "$COD_MILE" ]; then
-            gh issue edit "$ISSUE" --milestone "$COD_MILE"
-            echo "Attached milestone: Codex Internal"
-          else
-            echo "Codex Internal milestone not found!"
-          fi
-
-          echo "Auto-assign completed for issue #$ISSUE"
+      - name: Add labels
+        run: |
+          gh issue edit "${{ steps.issue.outputs.NUMBER }}" \
+            --add-label "codex"
+        env:
+          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
