@@ -1,10 +1,10 @@
 ---
-name: "Codex Supervisor (v7.2)"
+name: "Codex Supervisor (v7.3)"
 
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "0 */4 * * *"  # every 4 hours
+    - cron: "0 */4 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -25,9 +25,8 @@ jobs:
           GH_CI_PAT: ${{ secrets.GH_CI_PAT }}
         run: |
           set -euo pipefail
-          echo "Configuring GH_CI_PAT…"
 
-          unset GH_TOKEN || true    # GitHub injects this by default
+          unset GH_TOKEN || true
 
           if [ -z "${GH_CI_PAT:-}" ]; then
             echo "ERROR: GH_CI_PAT missing."
@@ -35,7 +34,6 @@ jobs:
           fi
 
           echo "$GH_CI_PAT" | gh auth login --with-token
-          echo "Authentication complete."
 
       - name: Run Supervisor
         working-directory: repo
@@ -44,7 +42,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Running Codex Supervisor (v7.2) for $GITHUB_REPOSITORY"
+          echo "Running Codex Supervisor (v7.3) for $GITHUB_REPOSITORY"
 
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
@@ -61,21 +59,19 @@ jobs:
           DASH_STALE=$(getvar CODEX_DASHBOARD_STALE_DAYS)
           DASH_ESC=$(getvar CODEX_DASHBOARD_ESCALATION_DAYS)
 
-          echo "Main thresholds: stale=${MAIN_STALE} days, escalation=${MAIN_ESC} days"
-          echo "Dashboard thresholds: stale=${DASH_STALE} days, escalation=${DASH_ESC} days"
+          echo "Main thresholds: stale=$MAIN_STALE, escalate=$MAIN_ESC"
+          echo "Dashboard thresholds: stale=$DASH_STALE, escalate=$DASH_ESC"
 
-          echo "Fetching Codex issues (search-free mode)…"
+          echo "Fetching Codex issues…"
 
           issues_json="$(
-            gh api "/repos/$OWNER/$REPO/issues" \
-              -f labels="codex" \
-              -f state="open" \
-              -f per_page=100 \
+            gh api \
+              "/repos/$OWNER/$REPO/issues?state=open&labels=codex&per_page=100" \
               --jq '.[]'
           )"
 
           if [ -z "$issues_json" ]; then
-            echo "No Codex issues found. Exiting."
+            echo "No codex issues found."
             exit 0
           fi
 
@@ -85,11 +81,11 @@ jobs:
             CREATED=$(echo "$issue" | jq -r '.created_at')
 
             echo ""
-            echo "Processing issue #$NUMBER: $TITLE"
+            echo "→ Processing #$NUMBER: $TITLE"
 
             age_days=$(( ( $(date -u +%s) - $(date -u -d "$CREATED" +%s) ) / 86400 ))
 
-            if echo "$TITLE" | grep -q "Dashboard"; then
+            if echo "$TITLE" | grep -iq "dashboard"; then
               STALE="$DASH_STALE"
               ESC="$DASH_ESC"
             else
@@ -98,18 +94,18 @@ jobs:
             fi
 
             if [ "$age_days" -ge "$ESC" ]; then
-              echo " → Needs escalation"
+              echo "  Escalation threshold reached."
               gh issue edit "$NUMBER" \
-                --add-label "needs-escalation" \
-                --remove-label "needs-attention" || true
+                --add-label needs-escalation \
+                --remove-label needs-attention || true
 
             elif [ "$age_days" -ge "$STALE" ]; then
-              echo " → Needs attention"
+              echo "  Stale threshold reached."
               gh issue edit "$NUMBER" \
-                --add-label "needs-attention" || true
+                --add-label needs-attention || true
 
             else
-              echo " → Normal"
+              echo "  No action needed."
             fi
 
           done
