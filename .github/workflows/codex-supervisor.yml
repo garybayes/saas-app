@@ -1,5 +1,5 @@
 ---
-name: "Codex Supervisor (v7)"
+name: "Codex Supervisor (v7.1)"
 
 # yamllint disable-line rule:truthy
 on:
@@ -9,256 +9,108 @@ on:
 
 permissions:
   contents: write
-  issues: write
 
 jobs:
   supervisor:
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-      CODEX_MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
-      CODEX_DASHBOARD_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
-      CODEX_SELFTEST_MILESTONE: ${{ vars.CODEX_SELFTEST_MILESTONE }}
-      CODEX_MAIN_STALE_DAYS: ${{ vars.CODEX_MAIN_STALE_DAYS }}
-      CODEX_MAIN_ESCALATION_DAYS: ${{ vars.CODEX_MAIN_ESCALATION_DAYS }}
-      CODEX_DASHBOARD_STALE_DAYS: ${{ vars.CODEX_DASHBOARD_STALE_DAYS }}
-      CODEX_DASHBOARD_ESCALATION_DAYS: ${{ vars.CODEX_DASHBOARD_ESCALATION_DAYS }}
 
     steps:
-      - name: Checkout gh-pages
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: gh-pages
-          path: gh-pages
+          path: repo
 
-      - name: Run Codex Supervisor
-        working-directory: gh-pages
-        shell: bash
+      - name: Configure token
+        run: |
+          set -euo pipefail
+          echo "Configuring GH_CI_PAT…"
+
+          # Override GitHub’s auto-injected GH_TOKEN
+          unset GH_TOKEN || true
+
+          if [ -z "${GH_CI_PAT:-}" ]; then
+            echo "ERROR: GH_CI_PAT missing."
+            exit 1
+          fi
+
+          echo "$GH_CI_PAT" | gh auth login --with-token
+          echo "Authentication complete."
+        env:
+          GH_CI_PAT: ${{ secrets.GH_CI_PAT }}
+
+      - name: Run Supervisor
+        working-directory: repo
+        env:
+          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
         run: |
           set -euo pipefail
 
-          echo "Running Codex Supervisor (v7) for $GITHUB_REPOSITORY"
+          echo "Running Codex Supervisor (v7.1) for $GITHUB_REPOSITORY"
 
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
-          main_ms="${CODEX_MAIN_MILESTONE:-}"
-          dash_ms="${CODEX_DASHBOARD_MILESTONE:-}"
-          selftest_ms="${CODEX_SELFTEST_MILESTONE:-}"
+          # Thresholds from repo variables
+          MAIN_STALE=$(gh variable get CODEX_MAIN_STALE_DAYS --repo "$OWNER/$REPO" --json | jq -r '.[0].value')
+          MAIN_ESC=$(gh variable get CODEX_MAIN_ESCALATION_DAYS --repo "$OWNER/$REPO" --json | jq -r '.[0].value')
+          DASH_STALE=$(gh variable get CODEX_DASHBOARD_STALE_DAYS --repo "$OWNER/$REPO" --json | jq -r '.[0].value')
+          DASH_ESC=$(gh variable get CODEX_DASHBOARD_ESCALATION_DAYS --repo "$OWNER/$REPO" --json | jq -r '.[0].value')
 
-          if [[ -z "$main_ms" || -z "$dash_ms" ]]; then
-            echo "ERROR: CODEX_MAIN_MILESTONE or CODEX_DASHBOARD_MILESTONE is not set."
-            exit 1
-          fi
+          echo "Main thresholds: stale=${MAIN_STALE} days, escalation=${MAIN_ESC} days"
+          echo "Dashboard thresholds: stale=${DASH_STALE} days, escalation=${DASH_ESC} days"
 
-          # Thresholds
-          main_stale="${CODEX_MAIN_STALE_DAYS:-0}"
-          main_esc="${CODEX_MAIN_ESCALATION_DAYS:-0}"
-          dash_stale="${CODEX_DASHBOARD_STALE_DAYS:-0}"
-          dash_esc="${CODEX_DASHBOARD_ESCALATION_DAYS:-0}"
+          echo "Fetching Codex issues (no Search API)…"
 
-          echo "Main thresholds: stale=$main_stale days, escalation=$main_esc days"
-          echo "Dashboard thresholds: stale=$dash_stale days, escalation=$dash_esc days"
-
-          now_ts=$(date -u +%s)
-
-          echo "Fetching Codex issues for supervision…"
-
+          # Search-free API: issues filtered by codex label
           issues_json="$(
             gh api \
-              -H "Accept: application/vnd.github+json" \
-              "/search/issues" \
-              -f q="repo:$OWNER/$REPO label:codex is:issue state:open" \
+              "/repos/$OWNER/$REPO/issues" \
+              -f labels="codex" \
+              -f state="open" \
               -f per_page=100 \
-            | jq '.items'
+              --jq '.[]'
           )"
 
-          # Filter out PRs just in case
-          issues_json="$(echo "$issues_json" | jq 'map(select(.pull_request? == null))')"
+          if [ -z "$issues_json" ]; then
+            echo "No Codex issues found."
+            exit 0
+          fi
 
-          count=$(echo "$issues_json" | jq 'length')
-          echo "Found $count open Codex issues."
-
-          scanned=0
-          stale_count=0
-          esc_count=0
-          fixed_count=0
-
-          stale_ids=""
-          esc_ids=""
-          fixed_ids=""
-
-          json_array_from_ids() {
-            local ids="$1"
-            if [ -z "$ids" ]; then
-              echo "[]"
-            else
-              printf '%s\n' $ids | jq -R . | jq -s .
-            fi
-          }
-
-          while IFS= read -r row; do
-            number=$(echo "$row" | jq -r '.number')
-            title=$(echo "$row" | jq -r '.title')
-            updated_at=$(echo "$row" | jq -r '.updated_at')
-            milestone_num=$(echo "$row" | jq -r '.milestone.number // empty')
-            labels_json=$(echo "$row" | jq -c '.labels[].name')
-
-            scanned=$((scanned + 1))
+          echo "$issues_json" | jq -c '.' | while read -r issue; do
+            NUMBER=$(echo "$issue" | jq -r '.number')
+            TITLE=$(echo "$issue" | jq -r '.title')
+            CREATED=$(echo "$issue" | jq -r '.created_at')
 
             echo ""
-            echo "→ Issue #$number: $title"
+            echo "Processing issue #$NUMBER: $TITLE"
 
-            # Skip if in self-test milestone
-            if [[ -n "$selftest_ms" && "$milestone_num" = "$selftest_ms" ]]; then
-              echo "  Skipping (Codex Internal/self-test milestone)."
-              continue
-            fi
+            age_days=$(( ( $(date -u +%s) - $(date -u -d "$CREATED" +%s) ) / 86400 ))
 
-            # Skip if explicitly a self-test issue
-            if echo "$labels_json" | grep -q '^"codex-selftest"$'; then
-              echo "  Skipping (codex-selftest label)."
-              continue
-            fi
-
-            # Determine track
-            track="none"
-            if echo "$labels_json" | grep -q '^"codex-trackmain"$'; then
-              track="main"
-            elif echo "$labels_json" | grep -q '^"codex-trackdashboard"$'; then
-              track="dashboard"
-            fi
-
-            if [ "$track" = "none" ]; then
-              echo "  WARN: No track label (codex-trackmain/codex-trackdashboard). Skipping escalation."
-              continue
-            fi
-
-            # Compute age in days
-            if ! issue_ts=$(date -d "$updated_at" -u +%s 2>/dev/null); then
-              echo "  WARN: Unable to parse updated_at '$updated_at'. Skipping."
-              continue
-            fi
-
-            age_days=$(( (now_ts - issue_ts) / 86400 ))
-            echo "  Last updated: $updated_at ($age_days days ago)"
-
-            # Labels for escalation
-            has_attention=$(echo "$labels_json" | grep -q '^"needs-attention"$' && echo "yes" || echo "no")
-            has_escalation=$(echo "$labels_json" | grep -q '^"needs-escalation"$' && echo "yes" || echo "no")
-
-            stale_thr=0
-            esc_thr=0
-
-            if [ "$track" = "main" ]; then
-              stale_thr="$main_stale"
-              esc_thr="$main_esc"
+            if echo "$TITLE" | grep -q "Self-Test"; then
+              STALE="$MAIN_STALE"
+              ESC="$MAIN_ESC"
+            elif echo "$TITLE" | grep -q "Dashboard"; then
+              STALE="$DASH_STALE"
+              ESC="$DASH_ESC"
             else
-              stale_thr="$dash_stale"
-              esc_thr="$dash_esc"
+              STALE="$MAIN_STALE"
+              ESC="$MAIN_ESC"
             fi
 
-            action="none"
-            add_labels=()
-            remove_labels=()
+            if [ "$age_days" -ge "$ESC" ]; then
+              echo " → Needs escalation"
+              gh issue edit "$NUMBER" \
+                --add-label "needs-escalation" \
+                --remove-label "needs-attention" || true
 
-            if [ "$esc_thr" -gt 0 ] && [ "$age_days" -ge "$esc_thr" ]; then
-              action="escalate"
-              if [ "$has_escalation" != "yes" ]; then
-                add_labels+=( "needs-escalation" )
-              fi
-              if [ "$has_attention" = "yes" ]; then
-                remove_labels+=( "needs-attention" )
-              fi
-              esc_count=$((esc_count + 1))
-              esc_ids="$esc_ids $number"
-            elif [ "$stale_thr" -gt 0 ] && [ "$age_days" -ge "$stale_thr" ]; then
-              action="stale"
-              if [ "$has_attention" != "yes" ]; then
-                add_labels+=( "needs-attention" )
-              fi
-              if [ "$has_escalation" = "yes" ]; then
-                remove_labels+=( "needs-escalation" )
-              fi
-              stale_count=$((stale_count + 1))
-              stale_ids="$stale_ids $number"
+            elif [ "$age_days" -ge "$STALE" ]; then
+              echo " → Needs attention"
+              gh issue edit "$NUMBER" \
+                --add-label "needs-attention" || true
+
             else
-              action="clear"
-              if [ "$has_attention" = "yes" ]; then
-                remove_labels+=( "needs-attention" )
-              fi
-              if [ "$has_escalation" = "yes" ]; then
-                remove_labels+=( "needs-escalation" )
-              fi
+              echo " → Normal"
             fi
+          done
 
-            echo "  Track: $track | Action: $action"
-
-            if [ "${#add_labels[@]}" -eq 0 ] && [ "${#remove_labels[@]}" -eq 0 ]; then
-              echo "  No label changes needed."
-              continue
-            fi
-
-            cmd=(gh issue edit "$number" --repo "$OWNER/$REPO")
-
-            for lbl in "${add_labels[@]}"; do
-              cmd+=( --add-label "$lbl" )
-            done
-
-            for lbl in "${remove_labels[@]}"; do
-              cmd+=( --remove-label "$lbl" )
-            done
-
-            echo "  Applying label changes…"
-            if "${cmd[@]}"; then
-              fixed_count=$((fixed_count + 1))
-              fixed_ids="$fixed_ids $number"
-              echo "  Labels updated."
-            else
-              echo "  ERROR: Failed to update labels for #$number"
-            fi
-
-          done < <(echo "$issues_json" | jq -c '.[]')
-
-          # --------------------------------------------------------
-          # Telemetry write
-          # --------------------------------------------------------
-          mkdir -p telemetry
-
-          ts="$(date -u +"%Y%m%dT%H%M%SZ")"
-          outfile="telemetry/supervisor-$ts.json"
-
-          stale_json=$(json_array_from_ids "$stale_ids")
-          esc_json=$(json_array_from_ids "$esc_ids")
-          fixed_json=$(json_array_from_ids "$fixed_ids")
-
-          {
-            printf '{\n'
-            printf '  "component": "supervisor",\n'
-            printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            printf '  "repository": "%s",\n' "$GITHUB_REPOSITORY"
-            printf '  "stats": {\n'
-            printf '    "scanned": %s,\n' "$scanned"
-            printf '    "stale": %s,\n' "$stale_count"
-            printf '    "escalated": %s,\n' "$esc_count"
-            printf '    "label_fixes": %s\n' "$fixed_count"
-            printf '  },\n'
-            printf '  "issues": {\n'
-            printf '    "stale": %s,\n' "$stale_json"
-            printf '    "escalated": %s,\n' "$esc_json"
-            printf '    "label_fixes": %s\n' "$fixed_json"
-            printf '  }\n'
-            printf '}\n'
-          } > "$outfile"
-
-          echo "Wrote supervisor telemetry: $outfile"
-
-      - name: Commit telemetry
-        working-directory: gh-pages
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          git add telemetry/*.json || true
-          git commit -m "Codex Supervisor telemetry update" || echo "No telemetry changes to commit."
-          git push origin gh-pages || true
+          echo "Supervisor run complete."
