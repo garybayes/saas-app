@@ -4,7 +4,7 @@ name: "Codex Telemetry Merge (v7)"
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "30 */4 * * *"  # after supervisor + sync + activity
+    - cron: "30 */4 * * *"  # run after supervisor + sync + activity
   workflow_dispatch: {}
 
 permissions:
@@ -26,72 +26,58 @@ jobs:
         with:
           path: repo
 
-      - name: Configure token
-        env:
-          GH_CI_PAT: ${{ secrets.GH_CI_PAT }}
-        run: |
-          set -euo pipefail
-
-          echo "Unsetting system GH_TOKEN so workflow can use GH_CI_PAT…"
-          unset GH_TOKEN || true
-
-          if [ -z "${GH_CI_PAT:-}" ]; then
-            echo "ERROR: GH_CI_PAT secret missing."
-            exit 1
-          fi
-
-          echo "$GH_CI_PAT" | gh auth login --with-token
-          echo "Authenticated using GH_CI_PAT."
-
-      - name: Merge Telemetry
-        working-directory: gh-pages
+      - name: Enable GitHub CLI Auth
         env:
           GH_TOKEN: ${{ secrets.GH_CI_PAT }}
         run: |
+          set -e
+          echo "Authenticated with GH_CI_PAT"
+
+      - name: Merge telemetry files
+        working-directory: gh-pages
+        run: |
           set -euo pipefail
 
-          echo "Running Codex Telemetry Merge (v7)…"
+          mkdir -p telemetry
+          mkdir -p dashboard
 
-          mkdir -p telemetry/merged
+          files=(telemetry/*.json)
 
-          timestamp="$(date -u +"%Y%m%dT%H%M%SZ")"
-          outfile="telemetry/merged/telemetry-merged-$timestamp.json"
-
-          echo "Collecting telemetry files…"
-
-          # Gather all JSON telemetry files
-          files=$(find telemetry -maxdepth 1 -type f -name '*.json' | sort)
-
-          if [ -z "$files" ]; then
-            echo "No telemetry files found — nothing to merge."
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No telemetry files found."
             exit 0
           fi
 
-          echo "Merging $(echo "$files" | wc -l) files…"
+          echo "Merging ${#files[@]} telemetry files..."
 
-          # Merge every JSON object into a single JSON array
-          jq -s '.' $files > "$outfile"
+          merged="dashboard/dashboard.json"
 
-          echo "Merged telemetry written to $outfile"
+          jq -s '
+            {
+              generated_at: (now | todate),
+              count: length,
+              items: .
+            }
+          ' telemetry/*.json > "$merged"
 
-      - name: Commit Merged Telemetry
+          echo "Wrote merged telemetry to $merged"
+
+      - name: Commit and push merged dashboard
         working-directory: gh-pages
         env:
           GH_TOKEN: ${{ secrets.GH_CI_PAT }}
         run: |
-          set -euo pipefail
+          set -e
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add telemetry/merged/*.json
+          git add dashboard/dashboard.json
 
           if git diff --cached --quiet; then
-            echo "No changes to commit."
+            echo "No dashboard updates to commit."
             exit 0
           fi
 
-          git commit -m "Codex Telemetry Merge update"
+          git commit -m "Codex Telemetry Merge: Updated dashboard"
           git push origin gh-pages
-
-          echo "Merged telemetry committed and pushed."
