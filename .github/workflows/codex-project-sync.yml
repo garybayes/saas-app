@@ -1,5 +1,5 @@
 ---
-name: "Codex Project Sync (v9.3)"
+name: "Codex Project Sync (v9.4)"
 
 # yamllint disable-line rule:truthy
 on:
@@ -35,10 +35,10 @@ jobs:
           REPO="${GITHUB_REPOSITORY#*/}"
 
           # ------------------------------------------------------------
-          # 1. Load milestone numbers from repo variables
+          # 1. Load repo variables via REST API (bulletproof)
           # ------------------------------------------------------------
-          MS_MAIN=$(gh variable get CODEX_MAIN_MILESTONE --repo "$OWNER/$REPO" --jq '.value')
-          MS_DASH=$(gh variable get CODEX_DASHBOARD_MILESTONE --repo "$OWNER/$REPO" --jq '.value')
+          MS_MAIN=$(gh api "/repos/$OWNER/$REPO/actions/variables/CODEX_MAIN_MILESTONE" --jq '.value')
+          MS_DASH=$(gh api "/repos/$OWNER/$REPO/actions/variables/CODEX_DASHBOARD_MILESTONE" --jq '.value')
 
           echo "Using milestones:"
           echo "  Main      : $MS_MAIN"
