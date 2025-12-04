@@ -1,5 +1,5 @@
 ---
-name: "Codex Supervisor (v7.1)"
+name: "Codex Supervisor (v7.2)"
 
 # yamllint disable-line rule:truthy
 on:
@@ -21,12 +21,13 @@ jobs:
           path: repo
 
       - name: Configure token
+        env:
+          GH_CI_PAT: ${{ secrets.GH_CI_PAT }}
         run: |
           set -euo pipefail
           echo "Configuring GH_CI_PAT…"
 
-          # Override GitHub’s auto-injected GH_TOKEN
-          unset GH_TOKEN || true
+          unset GH_TOKEN || true    # GitHub injects this by default
 
           if [ -z "${GH_CI_PAT:-}" ]; then
             echo "ERROR: GH_CI_PAT missing."
@@ -35,8 +36,6 @@ jobs:
 
           echo "$GH_CI_PAT" | gh auth login --with-token
           echo "Authentication complete."
-        env:
-          GH_CI_PAT: ${{ secrets.GH_CI_PAT }}
 
       - name: Run Supervisor
         working-directory: repo
@@ -45,26 +44,30 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Running Codex Supervisor (v7.1) for $GITHUB_REPOSITORY"
+          echo "Running Codex Supervisor (v7.2) for $GITHUB_REPOSITORY"
 
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
-          # Thresholds from repo variables
-          MAIN_STALE=$(gh variable get CODEX_MAIN_STALE_DAYS --repo "$OWNER/$REPO" --json | jq -r '.[0].value')
-          MAIN_ESC=$(gh variable get CODEX_MAIN_ESCALATION_DAYS --repo "$OWNER/$REPO" --json | jq -r '.[0].value')
-          DASH_STALE=$(gh variable get CODEX_DASHBOARD_STALE_DAYS --repo "$OWNER/$REPO" --json | jq -r '.[0].value')
-          DASH_ESC=$(gh variable get CODEX_DASHBOARD_ESCALATION_DAYS --repo "$OWNER/$REPO" --json | jq -r '.[0].value')
+          getvar() {
+            gh variable get "$1" \
+              --repo "$OWNER/$REPO" \
+              --json value \
+              --jq '.value'
+          }
+
+          MAIN_STALE=$(getvar CODEX_MAIN_STALE_DAYS)
+          MAIN_ESC=$(getvar CODEX_MAIN_ESCALATION_DAYS)
+          DASH_STALE=$(getvar CODEX_DASHBOARD_STALE_DAYS)
+          DASH_ESC=$(getvar CODEX_DASHBOARD_ESCALATION_DAYS)
 
           echo "Main thresholds: stale=${MAIN_STALE} days, escalation=${MAIN_ESC} days"
           echo "Dashboard thresholds: stale=${DASH_STALE} days, escalation=${DASH_ESC} days"
 
-          echo "Fetching Codex issues (no Search API)…"
+          echo "Fetching Codex issues (search-free mode)…"
 
-          # Search-free API: issues filtered by codex label
           issues_json="$(
-            gh api \
-              "/repos/$OWNER/$REPO/issues" \
+            gh api "/repos/$OWNER/$REPO/issues" \
               -f labels="codex" \
               -f state="open" \
               -f per_page=100 \
@@ -72,7 +75,7 @@ jobs:
           )"
 
           if [ -z "$issues_json" ]; then
-            echo "No Codex issues found."
+            echo "No Codex issues found. Exiting."
             exit 0
           fi
 
@@ -86,10 +89,7 @@ jobs:
 
             age_days=$(( ( $(date -u +%s) - $(date -u -d "$CREATED" +%s) ) / 86400 ))
 
-            if echo "$TITLE" | grep -q "Self-Test"; then
-              STALE="$MAIN_STALE"
-              ESC="$MAIN_ESC"
-            elif echo "$TITLE" | grep -q "Dashboard"; then
+            if echo "$TITLE" | grep -q "Dashboard"; then
               STALE="$DASH_STALE"
               ESC="$DASH_ESC"
             else
@@ -111,6 +111,7 @@ jobs:
             else
               echo " → Normal"
             fi
+
           done
 
           echo "Supervisor run complete."
