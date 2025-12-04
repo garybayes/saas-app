@@ -1,5 +1,5 @@
 ---
-name: "Codex Project Sync (v9.2)"
+name: "Codex Project Sync (v9.3)"
 
 # yamllint disable-line rule:truthy
 on:
@@ -10,134 +10,99 @@ on:
 permissions:
   contents: write
   issues: write
-  actions: read
+  metadata: read
 
 jobs:
-  project-sync:
+  sync:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GH_CI_PAT }}  # required for API calls
 
     steps:
-      - name: Checkout gh-pages
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-          path: gh-pages
 
-      - name: Checkout main
-        uses: actions/checkout@v4
-        with:
-          path: repo
-
-      - name: Configure token
+      - name: Configure Git
         run: |
-          echo "Using GH_TOKEN (provided automatically by GitHub Actions)."
-        env:
-          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Run Project Sync
-        working-directory: repo
-        env:
-          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-
+      - name: Start sync
         run: |
           set -euo pipefail
+          echo "Running Codex Project Sync v9.3 for $GITHUB_REPOSITORY"
 
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
-          echo "Running Codex Project Sync v9.2 for $OWNER/$REPO"
-
-          # ---------------------------------------------------------------------
-          # Load milestone numbers from repo variables
-          # ---------------------------------------------------------------------
-          MAIN_MS=$(gh variable get CODEX_MAIN_MILESTONE --repo "$OWNER/$REPO" --json value --jq '.value')
-          DASH_MS=$(gh variable get CODEX_DASHBOARD_MILESTONE --repo "$OWNER/$REPO" --json value --jq '.value')
+          # ------------------------------------------------------------
+          # 1. Load milestone numbers from repo variables
+          # ------------------------------------------------------------
+          MS_MAIN=$(gh variable get CODEX_MAIN_MILESTONE --repo "$OWNER/$REPO" --jq '.value')
+          MS_DASH=$(gh variable get CODEX_DASHBOARD_MILESTONE --repo "$OWNER/$REPO" --jq '.value')
 
           echo "Using milestones:"
-          echo "  Main: $MAIN_MS"
-          echo "  Dashboard: $DASH_MS"
+          echo "  Main      : $MS_MAIN"
+          echo "  Dashboard : $MS_DASH"
 
-          # ---------------------------------------------------------------------
-          # Fetch codex issues
-          # ---------------------------------------------------------------------
-          echo "Fetching codex issues…"
-          ISSUES=$(gh issue list \
-            --label "codex" \
-            --state all \
-            --json number,title,labels,milestone \
-            --repo "$OWNER/$REPO")
+          # ------------------------------------------------------------
+          # 2. Convert milestone numbers → milestone titles
+          # ------------------------------------------------------------
+          MS_MAIN_TITLE=$(gh api "/repos/$OWNER/$REPO/milestones/$MS_MAIN" --jq '.title' || echo "")
+          MS_DASH_TITLE=$(gh api "/repos/$OWNER/$REPO/milestones/$MS_DASH" --jq '.title' || echo "")
 
-          if [[ "$ISSUES" == "[]" ]]; then
-            echo "No codex issues found. Exiting."
-            exit 0
+          if [ -z "$MS_MAIN_TITLE" ] || [ -z "$MS_DASH_TITLE" ]; then
+            echo "❌ ERROR: One or more milestone titles could not be resolved."
+            echo "Main=$MS_MAIN_TITLE | Dashboard=$MS_DASH_TITLE"
+            exit 1
           fi
 
-          echo "$ISSUES" | jq -r '.[] | "#\(.number): \(.title)"'
+          echo "Resolved titles:"
+          echo "  Main      : $MS_MAIN_TITLE"
+          echo "  Dashboard : $MS_DASH_TITLE"
 
-          # ---------------------------------------------------------------------
-          # Process each issue
-          # ---------------------------------------------------------------------
-          echo "$ISSUES" | jq -c '.[]' | while read -r ISSUE; do
-            NUM=$(echo "$ISSUE"        | jq '.number')
-            TITLE=$(echo "$ISSUE"      | jq -r '.title')
-            MS=$(echo "$ISSUE"         | jq '.milestone.number // null')
-            LABELS=$(echo "$ISSUE"     | jq -r '[.labels[].name]')
+          # ------------------------------------------------------------
+          # 3. Fetch codex issues (all states)
+          # ------------------------------------------------------------
+          echo "Fetching codex issues…"
 
-            echo ""
-            echo "Processing #$NUM \"$TITLE\""
+          issues_json=$(gh api "/repos/$OWNER/$REPO/issues?state=all&labels=codex&per_page=100")
 
-            # -----------------------------------------------------------------
-            # Determine correct milestone
-            # -----------------------------------------------------------------
-            TARGET_MS="$MAIN_MS"   # default to main track
+          echo "$issues_json" | jq -cr '.[] | [.number, .title] | @tsv' | \
+          while IFS=$'\t' read -r NUM TITLE; do
+            echo "#$NUM: $TITLE"
 
-            if echo "$LABELS" | jq -e '.[] | select(. == "codex-trackdashboard")' >/dev/null; then
-              TARGET_MS="$DASH_MS"
+            # ----------------------------------------------------------------
+            # 4. Determine track from labels
+            # ----------------------------------------------------------------
+            TRACK="main"
+            LABELS=$(echo "$issues_json" | jq -r ".[] | select(.number==$NUM) | .labels[].name")
+
+            if echo "$LABELS" | grep -q "codex-trackdashboard"; then
+              TRACK="dashboard"
             fi
 
-            if [[ "$MS" != "$TARGET_MS" ]]; then
-              echo " → Updating milestone to $TARGET_MS"
-              gh issue edit "$NUM" \
+            # Map track → milestone title
+            TARGET_MS_TITLE="$MS_MAIN_TITLE"
+            if [ "$TRACK" = "dashboard" ]; then
+              TARGET_MS_TITLE="$MS_DASH_TITLE"
+            fi
+
+            echo " → Track = $TRACK → Milestone = $TARGET_MS_TITLE"
+
+            # ----------------------------------------------------------------
+            # 5. Update the issue
+            # ----------------------------------------------------------------
+            echo "   Updating issue #$NUM…"
+
+            if ! gh issue edit "$NUM" \
                 --repo "$OWNER/$REPO" \
-                --milestone "$TARGET_MS"
-            else
-              echo " ✓ Milestone correct"
+                --milestone "$TARGET_MS_TITLE"; then
+              echo "⚠ Failed to update #$NUM"
+              continue
             fi
 
-            # -----------------------------------------------------------------
-            # Fix malformed labels → MUST be an array
-            # -----------------------------------------------------------------
-            FIXED_LABELS=$(echo "$LABELS" | jq -r '.[]')
-            echo " → Ensuring correct label array..."
-
-            gh issue edit "$NUM" \
-              --repo "$OWNER/$REPO" \
-              $(printf -- "--label %s " $FIXED_LABELS)
-
+            echo "   Updated successfully."
           done
 
-          # ---------------------------------------------------------------------
-          # Write telemetry summary
-          # ---------------------------------------------------------------------
-          mkdir -p ../gh-pages/telemetry
-
-          OUTFILE="../gh-pages/telemetry/project-sync-$(date -u +"%Y%m%dT%H%M%SZ").json"
-          {
-            printf '{\n'
-            printf '  "component": "project-sync",\n'
-            printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            printf '  "repository": "%s"\n' "$GITHUB_REPOSITORY"
-            printf '}\n'
-          } > "$OUTFILE"
-
-          echo "Wrote telemetry: $OUTFILE"
-
-      - name: Commit telemetry
-        working-directory: gh-pages
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add telemetry/*.json
-          git commit -m "Project Sync telemetry update" || echo "No changes detected"
-          git push origin gh-pages
+          echo "Project sync completed successfully."
