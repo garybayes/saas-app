@@ -1,102 +1,143 @@
 ---
-name: "Codex Telemetry Merge (v7)"
+name: "Codex Activity Engine (v7.5.1)"
 
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "30 */4 * * *"  # after supervisor, sync, activity engine
+    - cron: "45 */4 * * *"
   workflow_dispatch: {}
 
 permissions:
   contents: write
+  issues: write
 
 env:
   GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
 jobs:
-  telemetry-merge:
+  activity_engine:
     runs-on: ubuntu-latest
 
     steps:
+      # ------------------------------------------------------------
+      # 1. Checkout gh-pages WITH full git history (needed for commits)
+      # ------------------------------------------------------------
       - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           path: gh-pages
+          fetch-depth: 0
+          persist-credentials: false   # always false in Codex v7+
 
-      - name: Ensure directories exist
+      # ------------------------------------------------------------
+      # 2. Checkout repository source
+      # ------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      # ------------------------------------------------------------
+      # 3. Self-heal telemetry folder
+      # ------------------------------------------------------------
+      - name: Prepare telemetry directory
         run: |
-          mkdir -p gh-pages/telemetry
-          mkdir -p gh-pages/dashboard
-          mkdir -p gh-pages/merged
+          mkdir -p gh-pages/telemetry/activity
 
-      - name: Merge Telemetry Files
-        working-directory: gh-pages
+      # ------------------------------------------------------------
+      # 4. Load configuration from repo variables
+      # ------------------------------------------------------------
+      - name: Load configuration
+        id: config
         run: |
           set -euo pipefail
 
-          echo "Running Codex Telemetry Merge v7…"
+          echo "main_stale=${CODEX_MAIN_STALE_DAYS:-}" >> "$GITHUB_OUTPUT"
+          echo "main_esc=${CODEX_MAIN_ESCALATION_DAYS:-}" >> "$GITHUB_OUTPUT"
+          echo "dash_stale=${CODEX_DASHBOARD_STALE_DAYS:-}" >> "$GITHUB_OUTPUT"
+          echo "dash_esc=${CODEX_DASHBOARD_ESCALATION_DAYS:-}" >> "$GITHUB_OUTPUT"
 
-          TS="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-          MERGED="merged/telemetry-merged-${TS}.json"
-          DASH="dashboard/dashboard.json"
-
-          # Collect telemetry JSON files. If none found → empty array.
-          files=$(ls telemetry/*.json 2>/dev/null || true)
-
-          if [ -z "$files" ]; then
-            echo "No telemetry files found. Writing empty summaries."
-
-            jq -n --arg ts "$TS" \
-              '{timestamp:$ts, merged:[]}' > "$MERGED"
-
-            jq -n --arg ts "$TS" \
-              '{dashboard:{timestamp:$ts, diagnostics:[], supervisor:[], selftest:[], activity:[]}}' > "$DASH"
-
-            exit 0
-          fi
-
-          echo "Found telemetry files:"
-          ls telemetry/*.json
-
-          # Read all telemetry files, ignoring invalid ones
-          {
-            for f in telemetry/*.json; do
-              if jq empty "$f" >/dev/null 2>&1; then
-                cat "$f"
-              else
-                echo "Skipping invalid telemetry file: $f"
-              fi
-            done
-          } | jq -s '.' > all.json
-
-          echo "Merging telemetry…"
-
-          # Write merged snapshot
-          jq -n --slurpfile data all.json --arg ts "$TS" \
-            '{timestamp:$ts, merged:$data[0]}' > "$MERGED"
-
-          # Construct dashboard metrics
-          jq -n --slurpfile data all.json --arg ts "$TS" '
-            {
-              dashboard: {
-                timestamp: $ts,
-                diagnostics: ($data[0] | map(select(.component=="diagnostics"))),
-                supervisor: ($data[0] | map(select(.component=="supervisor"))),
-                activity: ($data[0] | map(select(.component=="activity"))),
-                selftest: ($data[0] | map(select(.component=="selftest")))
-              }
-            }' > "$DASH"
-
-          echo "Merged telemetry written to $MERGED"
-          echo "Dashboard summary written to $DASH"
-
-      - name: Commit merged telemetry & dashboard
-        working-directory: gh-pages
+      # ------------------------------------------------------------
+      # 5. Fetch codex issues (search-free API call)
+      # ------------------------------------------------------------
+      - name: Fetch codex issues
         run: |
+          set -euo pipefail
+
+          OWNER="${GITHUB_REPOSITORY%/*}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+
+          ISSUES_JSON="$(gh api "/repos/$OWNER/$REPO/issues?labels=codex&state=all&per_page=100")"
+          echo "$ISSUES_JSON" > issues.json
+
+      # ------------------------------------------------------------
+      # 6. Process issues (stale + escalation logic)
+      # ------------------------------------------------------------
+      - name: Process activity state
+        run: |
+          set -euo pipefail
+
+          MAIN_STALE="${{ steps.config.outputs.main_stale }}"
+          MAIN_ESC="${{ steps.config.outputs.main_esc }}"
+          DASH_STALE="${{ steps.config.outputs.dash_stale }}"
+          DASH_ESC="${{ steps.config.outputs.dash_esc }}"
+
+          NOW=$(date -u +%s)
+
+          while IFS= read -r issue; do
+            NUM=$(echo "$issue" | jq -r '.number')
+            TITLE=$(echo "$issue" | jq -r '.title')
+            UPDATED=$(echo "$issue" | jq -r '.updated_at')
+
+            UPDATED_TS=$(date -d "$UPDATED" +%s)
+            AGE=$(( (NOW - UPDATED_TS) / 86400 ))
+
+            TRACK_MAIN=$(echo "$issue" | jq -e '[.labels[].name] | index("codex-trackmain")' >/dev/null && echo "1" || echo "0")
+            TRACK_DASH=$(echo "$issue" | jq -e '[.labels[].name] | index("codex-trackdashboard")' >/dev/null && echo "1" || echo "0")
+
+            if [ "$TRACK_MAIN" = "1" ]; then
+              STALE="$MAIN_STALE"; ESC="$MAIN_ESC"
+            elif [ "$TRACK_DASH" = "1" ]; then
+              STALE="$DASH_STALE"; ESC="$DASH_ESC"
+            else
+              continue
+            fi
+
+            if [ "$AGE" -ge "$STALE" ]; then
+              gh api --method POST "/repos/${GITHUB_REPOSITORY}/issues/$NUM/labels" \
+                -f labels='["needs-attention"]'
+            fi
+
+            if [ "$AGE" -ge "$ESC" ]; then
+              gh api --method POST "/repos/${GITHUB_REPOSITORY}/issues/$NUM/labels" \
+                -f labels='["needs-escalation"]'
+            fi
+
+          done < <(jq -c '.[]' issues.json)
+
+      # ------------------------------------------------------------
+      # 7. Commit telemetry snapshot (with fixed authentication)
+      # ------------------------------------------------------------
+      - name: Commit activity telemetry
+        run: |
+          set -euo pipefail
+          cd gh-pages
+
+          SNAP="telemetry/activity/activity-$(date -u +"%Y%m%dT%H%M%SZ").json"
+
+          printf '{\n' > "$SNAP"
+          printf '  "component": "activity-engine",\n' >> "$SNAP"
+          printf '  "timestamp": "%s"\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$SNAP"
+          printf '}\n' >> "$SNAP"
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add merged/*.json dashboard/dashboard.json || true
-          git commit -m "Telemetry merge update" || true
-          git push origin gh-pages || true
+          git add "$SNAP"
+          git commit -m "Codex Activity Engine telemetry update" || echo "No changes"
+
+          # FIX: restore authentication removed by persist-credentials: false
+          git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
+
+          git push origin gh-pages
