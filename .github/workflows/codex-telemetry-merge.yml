@@ -1,26 +1,25 @@
 ---
-name: "Codex Activity Engine (v7.5.1)"
+name: "Codex Telemetry Merge (v7.5.1)"
 
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "45 */4 * * *"
+    - cron: "30 */4 * * *"
   workflow_dispatch: {}
 
 permissions:
   contents: write
-  issues: write
 
 env:
   GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
 jobs:
-  activity_engine:
+  merge_telemetry:
     runs-on: ubuntu-latest
 
     steps:
       # ------------------------------------------------------------
-      # 1. Checkout gh-pages WITH full git history (needed for commits)
+      # 1. Checkout gh-pages branch (must commit there)
       # ------------------------------------------------------------
       - name: Checkout gh-pages
         uses: actions/checkout@v4
@@ -31,113 +30,46 @@ jobs:
           persist-credentials: false   # always false in Codex v7+
 
       # ------------------------------------------------------------
-      # 2. Checkout repository source
+      # 2. Checkout repository (unused but standard for all Codex workflows)
       # ------------------------------------------------------------
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
         with:
           path: repo
 
       # ------------------------------------------------------------
-      # 3. Self-heal telemetry folder
+      # 3. Ensure telemetry folders exist
       # ------------------------------------------------------------
-      - name: Prepare telemetry directory
+      - name: Prepare telemetry directories
         run: |
+          mkdir -p gh-pages/telemetry/diagnostics
           mkdir -p gh-pages/telemetry/activity
+          mkdir -p gh-pages/telemetry/project-sync
+          mkdir -p gh-pages/telemetry/merged
 
       # ------------------------------------------------------------
-      # 4. Load configuration from repo variables
+      # 4. Collect JSON sources into a merge buffer
       # ------------------------------------------------------------
-      - name: Load configuration
-        id: config
+      - name: Scan available telemetry
+        id: scan
         run: |
           set -euo pipefail
 
-          echo "main_stale=${CODEX_MAIN_STALE_DAYS:-}" >> "$GITHUB_OUTPUT"
-          echo "main_esc=${CODEX_MAIN_ESCALATION_DAYS:-}" >> "$GITHUB_OUTPUT"
-          echo "dash_stale=${CODEX_DASHBOARD_STALE_DAYS:-}" >> "$GITHUB_OUTPUT"
-          echo "dash_esc=${CODEX_DASHBOARD_ESCALATION_DAYS:-}" >> "$GITHUB_OUTPUT"
+          DIAG=$(ls gh-pages/telemetry/diagnostics/*.json 2>/dev/null | wc -l)
+          ACT=$(ls gh-pages/telemetry/activity/*.json 2>/dev/null | wc -l)
+          PSYNC=$(ls gh-pages/telemetry/project-sync/*.json 2>/dev/null | wc -l)
+
+          echo "diag_count=$DIAG" >> "$GITHUB_OUTPUT"
+          echo "activity_count=$ACT" >> "$GITHUB_OUTPUT"
+          echo "psync_count=$PSYNC" >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------
-      # 5. Fetch codex issues (search-free API call)
+      # 5. Produce merged JSON payload
       # ------------------------------------------------------------
-      - name: Fetch codex issues
+      - name: Merge telemetry
         run: |
           set -euo pipefail
 
-          OWNER="${GITHUB_REPOSITORY%/*}"
-          REPO="${GITHUB_REPOSITORY#*/}"
+          OUT="gh-pages/telemetry/merged/telemetry-merged-$(date -u +"%Y%m%dT%H%M%SZ").json"
 
-          ISSUES_JSON="$(gh api "/repos/$OWNER/$REPO/issues?labels=codex&state=all&per_page=100")"
-          echo "$ISSUES_JSON" > issues.json
-
-      # ------------------------------------------------------------
-      # 6. Process issues (stale + escalation logic)
-      # ------------------------------------------------------------
-      - name: Process activity state
-        run: |
-          set -euo pipefail
-
-          MAIN_STALE="${{ steps.config.outputs.main_stale }}"
-          MAIN_ESC="${{ steps.config.outputs.main_esc }}"
-          DASH_STALE="${{ steps.config.outputs.dash_stale }}"
-          DASH_ESC="${{ steps.config.outputs.dash_esc }}"
-
-          NOW=$(date -u +%s)
-
-          while IFS= read -r issue; do
-            NUM=$(echo "$issue" | jq -r '.number')
-            TITLE=$(echo "$issue" | jq -r '.title')
-            UPDATED=$(echo "$issue" | jq -r '.updated_at')
-
-            UPDATED_TS=$(date -d "$UPDATED" +%s)
-            AGE=$(( (NOW - UPDATED_TS) / 86400 ))
-
-            TRACK_MAIN=$(echo "$issue" | jq -e '[.labels[].name] | index("codex-trackmain")' >/dev/null && echo "1" || echo "0")
-            TRACK_DASH=$(echo "$issue" | jq -e '[.labels[].name] | index("codex-trackdashboard")' >/dev/null && echo "1" || echo "0")
-
-            if [ "$TRACK_MAIN" = "1" ]; then
-              STALE="$MAIN_STALE"; ESC="$MAIN_ESC"
-            elif [ "$TRACK_DASH" = "1" ]; then
-              STALE="$DASH_STALE"; ESC="$DASH_ESC"
-            else
-              continue
-            fi
-
-            if [ "$AGE" -ge "$STALE" ]; then
-              gh api --method POST "/repos/${GITHUB_REPOSITORY}/issues/$NUM/labels" \
-                -f labels='["needs-attention"]'
-            fi
-
-            if [ "$AGE" -ge "$ESC" ]; then
-              gh api --method POST "/repos/${GITHUB_REPOSITORY}/issues/$NUM/labels" \
-                -f labels='["needs-escalation"]'
-            fi
-
-          done < <(jq -c '.[]' issues.json)
-
-      # ------------------------------------------------------------
-      # 7. Commit telemetry snapshot (with fixed authentication)
-      # ------------------------------------------------------------
-      - name: Commit activity telemetry
-        run: |
-          set -euo pipefail
-          cd gh-pages
-
-          SNAP="telemetry/activity/activity-$(date -u +"%Y%m%dT%H%M%SZ").json"
-
-          printf '{\n' > "$SNAP"
-          printf '  "component": "activity-engine",\n' >> "$SNAP"
-          printf '  "timestamp": "%s"\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$SNAP"
-          printf '}\n' >> "$SNAP"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add "$SNAP"
-          git commit -m "Codex Activity Engine telemetry update" || echo "No changes"
-
-          # FIX: restore authentication removed by persist-credentials: false
-          git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
-
-          git push origin gh-pages
+          echo
