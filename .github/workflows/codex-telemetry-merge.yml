@@ -4,7 +4,7 @@ name: "Codex Telemetry Merge (v7)"
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "30 */4 * * *"
+    - cron: "30 */4 * * *"  # after supervisor, sync, activity engine
   workflow_dispatch: {}
 
 permissions:
@@ -12,10 +12,9 @@ permissions:
 
 env:
   GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-  CODEX_COMPONENT: merge
 
 jobs:
-  merge:
+  telemetry-merge:
     runs-on: ubuntu-latest
 
     steps:
@@ -25,30 +24,79 @@ jobs:
           ref: gh-pages
           path: gh-pages
 
-      - name: Merge telemetry
+      - name: Ensure directories exist
+        run: |
+          mkdir -p gh-pages/telemetry
+          mkdir -p gh-pages/dashboard
+          mkdir -p gh-pages/merged
+
+      - name: Merge Telemetry Files
         working-directory: gh-pages
         run: |
           set -euo pipefail
 
-          mkdir -p telemetry
-          mkdir -p dashboard
+          echo "Running Codex Telemetry Merge v7…"
 
-          merged="dashboard/dashboard.json"
+          TS="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          MERGED="merged/telemetry-merged-${TS}.json"
+          DASH="dashboard/dashboard.json"
 
-          files=(telemetry/*.json)
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "No telemetry to merge."
-            echo "[]" > "$merged"
-          else
-            jq -s '.' telemetry/*.json > "$merged"
+          # Collect telemetry JSON files. If none found → empty array.
+          files=$(ls telemetry/*.json 2>/dev/null || true)
+
+          if [ -z "$files" ]; then
+            echo "No telemetry files found. Writing empty summaries."
+
+            jq -n --arg ts "$TS" \
+              '{timestamp:$ts, merged:[]}' > "$MERGED"
+
+            jq -n --arg ts "$TS" \
+              '{dashboard:{timestamp:$ts, diagnostics:[], supervisor:[], selftest:[], activity:[]}}' > "$DASH"
+
+            exit 0
           fi
 
-      - name: Commit merged dashboard
+          echo "Found telemetry files:"
+          ls telemetry/*.json
+
+          # Read all telemetry files, ignoring invalid ones
+          {
+            for f in telemetry/*.json; do
+              if jq empty "$f" >/dev/null 2>&1; then
+                cat "$f"
+              else
+                echo "Skipping invalid telemetry file: $f"
+              fi
+            done
+          } | jq -s '.' > all.json
+
+          echo "Merging telemetry…"
+
+          # Write merged snapshot
+          jq -n --slurpfile data all.json --arg ts "$TS" \
+            '{timestamp:$ts, merged:$data[0]}' > "$MERGED"
+
+          # Construct dashboard metrics
+          jq -n --slurpfile data all.json --arg ts "$TS" '
+            {
+              dashboard: {
+                timestamp: $ts,
+                diagnostics: ($data[0] | map(select(.component=="diagnostics"))),
+                supervisor: ($data[0] | map(select(.component=="supervisor"))),
+                activity: ($data[0] | map(select(.component=="activity"))),
+                selftest: ($data[0] | map(select(.component=="selftest")))
+              }
+            }' > "$DASH"
+
+          echo "Merged telemetry written to $MERGED"
+          echo "Dashboard summary written to $DASH"
+
+      - name: Commit merged telemetry & dashboard
         working-directory: gh-pages
         run: |
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add dashboard/dashboard.json
-          git commit -m "Telemetry merged" || echo "No changes"
-          git push origin gh-pages
+          git add merged/*.json dashboard/dashboard.json || true
+          git commit -m "Telemetry merge update" || true
+          git push origin gh-pages || true

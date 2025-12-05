@@ -1,5 +1,5 @@
 ---
-name: Codex Diagnostics (v7.3.1)
+name: Codex Diagnostics (v7.4)
 
 # yamllint disable-line rule:truthy
 on:
@@ -9,6 +9,9 @@ on:
 
 permissions:
   contents: write
+
+env:
+  GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
 jobs:
   diagnostics:
@@ -21,172 +24,33 @@ jobs:
           ref: gh-pages
           path: gh-pages
 
-      - name: Checkout main
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           path: repo
 
-      - name: Configure GitHub CLI authentication
-        env:
-          GH_CI_PAT: ${{ secrets.GH_CI_PAT }}
+      - name: Prepare telemetry directory
+        run: |
+          mkdir -p gh-pages/telemetry
+
+      - name: Load configuration
+        id: config
         run: |
           set -euo pipefail
 
-          echo "Preparing token for GH CLI..."
-          unset GH_TOKEN || true
+          # Load repo-scoped variables (safe even if missing)
+          MAIN_MS="${CODEX_MAIN_MILESTONE:-}"
+          DASH_MS="${CODEX_DASHBOARD_MILESTONE:-}"
+          SELFTEST_MS="${CODEX_SELFTEST_MILESTONE:-}"
 
-          if [ -n "${GH_CI_PAT:-}" ]; then
-            echo "$GH_CI_PAT" | gh auth login --with-token
-            echo "Authenticated with GH_CI_PAT."
-          else
-            echo "ERROR: GH_CI_PAT is empty or missing."
-            exit 1
-          fi
+          echo "main_ms=$MAIN_MS" >> "$GITHUB_OUTPUT"
+          echo "dash_ms=$DASH_MS" >> "$GITHUB_OUTPUT"
+          echo "selftest_ms=$SELFTEST_MS" >> "$GITHUB_OUTPUT"
 
-      - name: Run Diagnostics
-        id: diag
-        working-directory: repo
-        env:
-          GH_CI_PAT: ${{ secrets.GH_CI_PAT }}
+      - name: Validate milestones
+        id: milestones
         run: |
           set -euo pipefail
-
-          echo "Running diagnostics for $GITHUB_REPOSITORY"
 
           OWNER="${GITHUB_REPOSITORY%/*}"
-          REPO="${GITHUB_REPOSITORY#*/}"
-
-          required_vars=(
-            CODEX_MAIN_MILESTONE
-            CODEX_DASHBOARD_MILESTONE
-            CODEX_SELFTEST_RETAIN
-            CODEX_SELFTEST_MAX_AGE_DAYS
-            CODEX_TELEMETRY_MAX_AGE_DAYS
-            CODEX_MAIN_STALE_DAYS
-            CODEX_MAIN_ESCALATION_DAYS
-            CODEX_DASHBOARD_STALE_DAYS
-            CODEX_DASHBOARD_ESCALATION_DAYS
-          )
-
-          missing_vars=()
-          for v in "${required_vars[@]}"; do
-            if ! gh variable get "$v" >/dev/null 2>&1; then
-              missing_vars+=( "$v" )
-            fi
-          done
-
-          ms_json="$(gh api "/repos/$OWNER/$REPO/milestones")"
-          ms_main=$(echo "$ms_json" | jq -r \
-            '.[] | select((.number|tostring) == env.CODEX_MAIN_MILESTONE) | .title')
-          ms_dash=$(echo "$ms_json" | jq -r \
-            '.[] | select((.number|tostring) == env.CODEX_DASHBOARD_MILESTONE) | .title')
-
-          labels_json="$(gh api "/repos/$OWNER/$REPO/labels")"
-          need_labels=(codex codex-selftest codex-trackmain codex-trackdashboard)
-          missing_labels=()
-
-          for lbl in "${need_labels[@]}"; do
-            if ! echo "$labels_json" | jq -e --arg L "$lbl" \
-              '.[] | select(.name==$L)' >/dev/null; then
-              missing_labels+=( "$lbl" )
-            fi
-          done
-
-          #
-          # Classic Projects (safe detection)
-          #
-          project_enabled="false"
-          project_exists="false"
-
-          if gh api --silent --method GET \
-            -H "Accept: application/vnd.github.inertia-preview+json" \
-            "/repos/$OWNER/$REPO/projects" >/dev/null 2>&1; then
-
-            project_enabled="true"
-
-            proj_json="$(gh api \
-              -H 'Accept: application/vnd.github.inertia-preview+json' \
-              "/repos/$OWNER/$REPO/projects")"
-
-            if echo "$proj_json" | jq -e \
-              '.[] | select(.name=="Codex Dual-Track Development")' >/dev/null; then
-              project_exists="true"
-            fi
-          fi
-
-          #
-          # gh-pages validation
-          #
-          dash_exists="false"
-          tel_exists="false"
-
-          if [ -f "../gh-pages/dashboard/dashboard.json" ]; then
-            dash_exists="true"
-          fi
-
-          if [ -d "../gh-pages/telemetry" ]; then
-            tel_exists="true"
-          fi
-
-          mkdir -p ../gh-pages/telemetry
-          outfile="../gh-pages/telemetry/diagnostics-$(date -u +"%Y%m%dT%H%M%SZ").json"
-
-          {
-            printf '{\n'
-            printf '  "component": "diagnostics",\n'
-            printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            printf '  "repository": "%s",\n' "$GITHUB_REPOSITORY"
-
-            printf '  "repo_variables": {\n'
-            printf '    "missing": %s\n' \
-              "$(printf '%s\n' "${missing_vars[@]}" | jq -R . | jq -s .)"
-            printf '  },\n'
-
-            printf '  "milestones": {\n'
-            printf '    "main_title": "%s",\n' "$ms_main"
-            printf '    "dashboard_title": "%s"\n' "$ms_dash"
-            printf '  },\n'
-
-            printf '  "labels": {\n'
-            printf '    "missing": %s\n' \
-              "$(printf '%s\n' "${missing_labels[@]}" | jq -R . | jq -s .)"
-            printf '  },\n'
-
-            printf '  "project": {\n'
-            printf '    "enabled": "%s",\n' "$project_enabled"
-            printf '    "exists": "%s"\n' "$project_exists"
-            printf '  },\n'
-
-            printf '  "gh_pages": {\n'
-            printf '    "dashboard_exists": "%s",\n' "$dash_exists"
-            printf '    "telemetry_exists": "%s"\n' "$tel_exists"
-            printf '  }\n'
-
-            printf '}\n'
-          } > "$outfile"
-
-          echo "Wrote diagnostics to: $outfile"
-
-          #
-          # Fail ONLY when real configuration problems exist
-          #
-          if [ "${#missing_vars[@]}" -gt 0 ] || \
-             [ -z "$ms_main" ] || [ -z "$ms_dash" ] || \
-             [ "${#missing_labels[@]}" -gt 0 ]; then
-            echo "CONFIG ERROR detected. Failing diagnostics job."
-            exit 1
-          fi
-
-      - name: Commit diagnostics telemetry
-        working-directory: gh-pages
-        env:
-          GH_CI_PAT: ${{ secrets.GH_CI_PAT }}
-        run: |
-          set -euo pipefail
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add telemetry/*.json || true
-          git commit -m "Diagnostics telemetry update" || exit 0
-          git push origin gh-pages
+          REPO="${GI

@@ -1,19 +1,18 @@
 ---
-name: "Codex Supervisor (v7.3)"
+name: "Codex Supervisor (v7.4)"
 
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "0 */4 * * *"
+    - cron: "0 */4 * * *"  # every 4 hours
   workflow_dispatch: {}
 
 permissions:
-  issues: write
   contents: write
+  issues: write
 
 env:
   GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-  CODEX_COMPONENT: supervisor
 
 jobs:
   supervisor:
@@ -26,85 +25,129 @@ jobs:
           ref: gh-pages
           path: gh-pages
 
-      - name: Run Supervisor
-        id: sup
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Ensure telemetry directories exist
+        run: |
+          mkdir -p gh-pages/telemetry
+          mkdir -p gh-pages/dashboard
+          mkdir -p gh-pages/merged
+
+      - name: Run Codex Supervisor
         working-directory: repo
         run: |
           set -euo pipefail
 
+          echo "Running Codex Supervisor (v7.4) for $GITHUB_REPOSITORY"
+
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
-          s_main=$(gh variable get CODEX_MAIN_STALE_DAYS     --repo "$OWNER/$REPO" --jq '.value')
-          e_main=$(gh variable get CODEX_MAIN_ESCALATION_DAYS --repo "$OWNER/$REPO" --jq '.value')
-          s_dash=$(gh variable get CODEX_DASHBOARD_STALE_DAYS --repo "$OWNER/$REPO" --jq '.value')
-          e_dash=$(gh variable get CODEX_DASHBOARD_ESCALATION_DAYS --repo "$OWNER/$REPO" --jq '.value')
+          get_var() {
+            local name="$1"
+            gh variable get "$name" --jq .value 2>/dev/null || echo ""
+          }
 
-          issues=$(gh api "/repos/$OWNER/$REPO/issues" \
-            -f labels="codex" \
-            -f state="open" \
-            -f per_page=100)
+          MAIN_MS="$(get_var CODEX_MAIN_MILESTONE)"
+          DASH_MS="$(get_var CODEX_DASHBOARD_MILESTONE)"
 
-          declare -a escalated=()
+          MAIN_STALE="$(get_var CODEX_MAIN_STALE_DAYS)"
+          MAIN_ESC="$(get_var CODEX_MAIN_ESCALATION_DAYS)"
+          DASH_STALE="$(get_var CODEX_DASHBOARD_STALE_DAYS)"
+          DASH_ESC="$(get_var CODEX_DASHBOARD_ESCALATION_DAYS)"
 
-          count=$(echo "$issues" | jq 'length')
-          for i in $(seq 0 $((count - 1))); do
-            number=$(echo "$issues" | jq -r ".[$i].number")
-            labels=$(echo "$issues" | jq -r ".[$i].labels[].name")
-            updated_at=$(echo "$issues" | jq -r ".[$i].updated_at")
-            updated_sec=$(date -d "$updated_at" +%s)
-            now_sec=$(date -u +%s)
-            age_days=$(( (now_sec - updated_sec) / 86400 ))
+          echo "Main: milestone=$MAIN_MS, stale=${MAIN_STALE:-?}, escalation=${MAIN_ESC:-?}"
+          echo "Dashboard: milestone=$DASH_MS, stale=${DASH_STALE:-?}, escalation=${DASH_ESC:-?}"
 
-            track=""
-            stale_threshold=9999
-            esc_threshold=9999
+          if [ -z "$MAIN_MS" ] || [ -z "$DASH_MS" ]; then
+            echo "ERROR: Missing milestone numbers. Supervisor will not modify issues."
+            exit 0
+          fi
 
-            if echo "$labels" | grep -q "codex-trackmain"; then
-              track="main"
-              stale_threshold=$s_main
-              esc_threshold=$e_main
-            elif echo "$labels" | grep -q "codex-trackdashboard"; then
-              track="dashboard"
-              stale_threshold=$s_dash
-              esc_threshold=$e_dash
-            else
-              continue
+          now_ts="$(date -u +%s)"
+
+          > supervisor_raw.json
+
+          process_track() {
+            local track="$1"
+            local track_label="$2"
+            local milestone="$3"
+            local stale_days="$4"
+            local esc_days="$5"
+
+            if [ -z "$stale_days" ] || [ -z "$esc_days" ]; then
+              echo "Skipping track '$track' due to missing thresholds."
+              return 0
             fi
 
-            if (( age_days >= esc_threshold )); then
-              gh api --method PATCH "/repos/$OWNER/$REPO/issues/$number" \
-                -f labels='["codex","needs-escalation"]'
-              escalated+=("$number")
-            elif (( age_days >= stale_threshold )); then
-              gh api --method PATCH "/repos/$OWNER/$REPO/issues/$number" \
-                -f labels='["codex","needs-attention"]'
-            fi
-          done
+            echo "Processing track '$track' with label '$track_label' and milestone $milestone…"
 
-          echo "escalated=$(printf '%s\n' "${escalated[@]:-}" | jq -R . | jq -s .)" \
-            >> "$GITHUB_OUTPUT"
+            gh api --paginate "/repos/$OWNER/$REPO/issues" \
+              -X GET \
+              -F state="open" \
+              -F milestone="$milestone" \
+              -F labels="codex,$track_label" \
+              > "issues-${track}.json"
 
-      - name: Write Telemetry (Always-On)
-        if: always()
+            jq -c '.[] | {number, updated_at}' "issues-${track}.json" | \
+            while read -r row; do
+              num=$(echo "$row" | jq -r '.number')
+              updated=$(echo "$row" | jq -r '.updated_at')
+
+              issue_ts=$(date -u -d "$updated" +%s || echo "$now_ts")
+              age_days=$(( (now_ts - issue_ts) / 86400 ))
+
+              status="normal"
+
+              if [ "$age_days" -ge "$esc_days" ]; then
+                status="escalation"
+                gh issue edit "$num" \
+                  --add-label "needs-escalation" \
+                  --remove-label "needs-attention" || true
+              elif [ "$age_days" -ge "$stale_days" ]; then
+                status="stale"
+                gh issue edit "$num" \
+                  --add-label "needs-attention" \
+                  --remove-label "needs-escalation" || true
+              else
+                gh issue edit "$num" \
+                  --remove-label "needs-attention" \
+                  --remove-label "needs-escalation" || true
+              fi
+
+              printf '{"track":"%s","number":%s,"age_days":%s,"status":"%s"}\n' \
+                "$track" "$num" "$age_days" "$status" >> supervisor_raw.json
+            done
+          }
+
+          process_track "main" "codex-trackmain" "$MAIN_MS" "$MAIN_STALE" "$MAIN_ESC"
+          process_track "dashboard" "codex-trackdashboard" "$DASH_MS" "$DASH_STALE" "$DASH_ESC"
+
+          TS="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          OUT="../gh-pages/telemetry/supervisor-${GITHUB_RUN_ID}.json"
+
+          if [ -s supervisor_raw.json ]; then
+            jq -s --arg ts "$TS" --arg repo "$GITHUB_REPOSITORY" \
+              '{component:"supervisor",timestamp:$ts,repository:$repo,issues:.}' \
+              supervisor_raw.json > "$OUT"
+          else
+            jq -n --arg ts "$TS" --arg repo "$GITHUB_REPOSITORY" \
+              '{component:"supervisor",timestamp:$ts,repository:$repo,issues:[]}' > "$OUT"
+          fi
+
+          echo "Wrote supervisor telemetry → $OUT"
+
+      - name: Commit supervisor telemetry
         working-directory: gh-pages
         run: |
-          mkdir -p telemetry
-          ts="$(date -u +"%Y%m%dT%H%M%SZ")"
-          outfile="telemetry/supervisor-$ts.json"
+          set -euo pipefail
 
-          {
-            printf '{\n'
-            printf '  "component": "supervisor",\n'
-            printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            printf '  "escalated": %s,\n' '${{ steps.sup.outputs.escalated }}'
-            printf '  "repository": "%s"\n' "$GITHUB_REPOSITORY"
-            printf '}\n'
-          } > "$outfile"
-
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add telemetry/*.json
-          git commit -m "Supervisor telemetry update" || echo "No changes"
-          git push origin gh-pages
+          git add telemetry/*.json || true
+          git commit -m "Supervisor telemetry update" || true
+          git push origin gh-pages || true

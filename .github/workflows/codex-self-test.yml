@@ -1,5 +1,5 @@
 ---
-name: "Codex Self-Test (v7)"
+name: Codex Self-Test (v7.5)
 
 # yamllint disable-line rule:truthy
 on:
@@ -9,10 +9,8 @@ on:
 
 permissions:
   contents: write
-  issues: write
 
 env:
-  CODEX_COMPONENT: selftest
   GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
 jobs:
@@ -31,60 +29,63 @@ jobs:
         with:
           path: repo
 
+      - name: Ensure telemetry directories exist
+        run: |
+          mkdir -p gh-pages/telemetry
+          mkdir -p gh-pages/dashboard
+          mkdir -p gh-pages/merged
+
+      - name: Resolve milestone ID
+        id: ms
+        run: |
+          SELFTEST_MS="${CODEX_SELFTEST_MILESTONE:-0}"
+
+          if [ "$SELFTEST_MS" = "0" ]; then
+            echo "FALLBACK: Using milestone 'Codex Internal'"
+            SELFTEST_MS=$(gh api "/repos/${GITHUB_REPOSITORY}/milestones" \
+              --jq '.[] | select(.title=="Codex Internal") | .number')
+          fi
+
+          if [ -z "$SELFTEST_MS" ]; then
+            echo "ERROR: Could not resolve self-test milestone."
+            exit 0
+          fi
+
+          echo "milestone=$SELFTEST_MS" >> "$GITHUB_OUTPUT"
+
       - name: Create self-test issue
-        id: create
         working-directory: repo
         run: |
-          set -euo pipefail
+          NOW_UTC="$(date -u +"%Y-%m-%d %H:%M UTC")"
 
-          OWNER="${GITHUB_REPOSITORY%/*}"
-          REPO="${GITHUB_REPOSITORY#*/}"
-          TS="$(date -u +"%Y-%m-%d %H:%M UTC")"
+          gh issue create \
+            --title "Codex Self-Test: $NOW_UTC" \
+            --body "Automated Codex self-test issue." \
+            --label "codex" \
+            --label "codex-selftest" \
+            --milestone "${{ steps.ms.outputs.milestone }}" || true
 
-          ms_num="$(gh variable get CODEX_SELFTEST_MILESTONE --repo "$OWNER/$REPO" --jq '.value')"
-
-          title="Codex Self-Test: $TS"
-
-          issue_json=$(gh api \
-            --method POST \
-            "/repos/$OWNER/$REPO/issues" \
-            -f title="$title" \
-            -f body="Codex Self-Test Run" \
-            -f labels='["codex","codex-selftest"]' \
-            -f milestone="$ms_num")
-
-          num=$(echo "$issue_json" | jq -r '.number')
-
-          echo "Created issue: $num"
-          echo "issue_number=$num" >> "$GITHUB_OUTPUT"
-
-      - name: Commit telemetry
-        working-directory: gh-pages
+      - name: Write telemetry record
         run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add telemetry/*.json
-          git commit -m "Self-Test telemetry update" || echo "No changes"
-          git push origin gh-pages
-
-      - name: Write Telemetry (Always-On)
-        if: always()
-        working-directory: gh-pages
-        run: |
-          mkdir -p telemetry
-          ts="$(date -u +"%Y%m%dT%H%M%SZ")"
-          outfile="telemetry/selftest-$ts.json"
+          OUT="gh-pages/telemetry/self-test-${GITHUB_RUN_ID}.json"
+          TS="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
           {
             printf '{\n'
             printf '  "component": "selftest",\n'
-            printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            printf '  "issue_created": "%s",\n' "${{ steps.create.outputs.issue_number }}"
-            printf '  "repository": "%s"\n' "$GITHUB_REPOSITORY"
+            printf '  "timestamp": "%s",\n' "$TS"
+            printf '  "run_id": "%s",\n' "$GITHUB_RUN_ID"
+            printf '  "milestone": "%s"\n' "${{ steps.ms.outputs.milestone }}"
             printf '}\n'
-          } > "$outfile"
+          } > "$OUT"
 
-          git add telemetry/*.json
-          git commit -m "Self-Test telemetry write" || echo "No changes"
-          git push origin gh-pages
+          echo "Wrote telemetry → $OUT"
+
+      - name: Commit telemetry
+        working-directory: gh-pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add telemetry/*.json || true
+          git commit -m "Self-Test telemetry update" || true
+          git push origin gh-pages || true

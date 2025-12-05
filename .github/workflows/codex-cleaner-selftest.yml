@@ -1,18 +1,16 @@
 ---
-name: "Codex Self-Test Cleaner (v4)"
+name: Codex Self-Test Cleaner (v4)
 
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "30 2 * * *"
+    - cron: "30 2 * * *"  # nightly cleanup
   workflow_dispatch: {}
 
 permissions:
   contents: write
-  issues: write
 
 env:
-  CODEX_COMPONENT: cleaner
   GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
 jobs:
@@ -31,59 +29,60 @@ jobs:
         with:
           path: repo
 
-      - name: Clean old self-test issues
-        id: clean
-        working-directory: repo
+      - name: Ensure telemetry directories exist
         run: |
-          set -euo pipefail
+          mkdir -p gh-pages/telemetry
+          mkdir -p gh-pages/dashboard
+          mkdir -p gh-pages/merged
 
-          OWNER="${GITHUB_REPOSITORY%/*}"
-          REPO="${GITHUB_REPOSITORY#*/}"
+      - name: Cleanup raw telemetry files
+        id: cleanup
+        run: |
+          MAX_AGE="${CODEX_SELFTEST_MAX_AGE_DAYS:-30}"
 
-          retain=$(gh variable get CODEX_SELFTEST_RETAIN --repo "$OWNER/$REPO" --jq '.value')
-          max_age=$(gh variable get CODEX_SELFTEST_MAX_AGE_DAYS --repo "$OWNER/$REPO" --jq '.value')
+          echo "Cleaning telemetry files older than $MAX_AGE days…"
 
-          ms_num=$(gh variable get CODEX_SELFTEST_MILESTONE --repo "$OWNER/$REPO" --jq '.value')
+          DELETE_LIST=()
 
-          issues_json=$(gh api "/repos/$OWNER/$REPO/issues" \
-            -f milestone="$ms_num" \
-            -f state="all" \
-            -f per_page="100")
+          while IFS= read -r file; do
+            DELETE_LIST+=("$file")
+          done < <(find gh-pages/telemetry -maxdepth 1 -type f -mtime +"$MAX_AGE")
 
-          close_list=($(echo "$issues_json" | jq -r '.[].number'))
-
-          total=${#close_list[@]}
-
-          if (( total > retain )); then
-            to_delete=("${close_list[@]:0:total-retain}")
-
-            for issue in "${to_delete[@]}"; do
-              gh api \
-                --method PATCH \
-                "/repos/$OWNER/$REPO/issues/$issue" \
-                -f state=closed \
-                -f state_reason="completed"
-            done
+          if [ ${#DELETE_LIST[@]} -eq 0 ]; then
+            echo "deleted_count=0" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-      - name: Write Telemetry (Always-On)
-        if: always()
-        working-directory: gh-pages
+          echo "Deleting ${#DELETE_LIST[@]} old telemetry files…"
+
+          for f in "${DELETE_LIST[@]}"; do
+            rm -f "$f"
+          done
+
+          echo "deleted_count=${#DELETE_LIST[@]}" >> "$GITHUB_OUTPUT"
+
+      - name: Write cleaner telemetry entry
         run: |
-          mkdir -p telemetry
-          ts="$(date -u +"%Y%m%dT%H%M%SZ")"
-          outfile="telemetry/cleaner-$ts.json"
+          OUT="gh-pages/telemetry/cleaner-${GITHUB_RUN_ID}.json"
+          TS="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
           {
             printf '{\n'
             printf '  "component": "cleaner",\n'
-            printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            printf '  "repository": "%s"\n' "$GITHUB_REPOSITORY"
+            printf '  "timestamp": "%s",\n' "$TS"
+            printf '  "run_id": "%s",\n' "$GITHUB_RUN_ID"
+            printf '  "deleted_count": %s\n' "${{ steps.cleanup.outputs.deleted_count }}"
             printf '}\n'
-          } > "$outfile"
+          } > "$OUT"
 
+          echo "Wrote telemetry → $OUT"
+
+      - name: Commit changes
+        working-directory: gh-pages
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add telemetry/*.json
-          git commit -m "Cleaner telemetry update" || echo "No changes"
-          git push origin gh-pages
+
+          git add telemetry/*.json || true
+          git commit -m "Self-Test Cleaner telemetry update" || true
+          git push origin gh-pages || true
