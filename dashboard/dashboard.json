@@ -1,0 +1,94 @@
+[
+  {
+    "component": "cleaner",
+    "timestamp": "2025-12-05T03:38:27Z",
+    "run_id": "19951851503",
+    "deleted_count": 0
+  },
+  {
+    "component": "cleaner",
+    "timestamp": "2025-12-05T21:53:12Z",
+    "run_id": "19977031621",
+    "deleted_count": 0
+  },
+  {
+    "component": "cleaner",
+    "timestamp": "2025-12-05T22:30:11Z",
+    "run_id": "19977824889",
+    "deleted_count": 0
+  },
+  {
+    "component": "diagnostics",
+    "timestamp": "2025-12-05T21:42:20Z",
+    "repository": "garybayes/saas-app",
+    "milestones": {
+      "main": "",
+      "dashboard": "",
+      "selftest": ""
+    },
+    "missing_labels": [
+      ""
+    ],
+    "config_error": "true"
+  },
+  {
+    "component": "diagnostics",
+    "timestamp": "2025-12-05T21:49:01Z",
+    "repository": "garybayes/saas-app",
+    "milestones": {
+      "main": "Sprint 4 Stabilization",
+      "dashboard": "Dashboard Validation",
+      "selftest": "Codex Internal"
+    },
+    "missing_labels": [
+      ""
+    ],
+    "config_error": "false"
+  },
+  {
+    "component": "diagnostics",
+    "timestamp": "2025-12-05T21:52:42Z",
+    "repository": "garybayes/saas-app",
+    "milestones": {
+      "main": "Sprint 4 Stabilization",
+      "dashboard": "Dashboard Validation",
+      "selftest": "Codex Internal"
+    },
+    "missing_labels": [
+      ""
+    ],
+    "config_error": "false"
+  },
+  {
+    "component": "diagnostics",
+    "timestamp": "2025-12-05T22:29:43Z",
+    "repository": "garybayes/saas-app",
+    "milestones": {
+      "main": "Sprint 4 Stabilization",
+      "dashboard": "Dashboard Validation",
+      "selftest": "Codex Internal"
+    },
+    "missing_labels": [
+      ""
+    ],
+    "config_error": "false"
+  },
+  {
+    "component": "selftest",
+    "timestamp": "2025-12-05T03:23:24Z",
+    "run_id": "19951604541",
+    "milestone": "6"
+  },
+  {
+    "component": "selftest",
+    "timestamp": "2025-12-05T21:52:59Z",
+    "run_id": "19977027887",
+    "milestone": "6"
+  },
+  {
+    "component": "selftest",
+    "timestamp": "2025-12-05T22:29:59Z",
+    "run_id": "19977820589",
+    "milestone": "6"
+  }
+]
