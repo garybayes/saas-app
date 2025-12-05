@@ -163,4 +163,8 @@ jobs:
 
           git add "$SNAP"
           git commit -m "Codex Activity Engine telemetry update" || echo "No changes"
+
+          # 🔥 FIX: authenticate push using GH_TOKEN (GH_CI_PAT)
+          git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
+
           git push origin gh-pages
