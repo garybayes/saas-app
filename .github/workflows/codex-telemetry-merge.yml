@@ -1,5 +1,5 @@
 ---
-name: "Codex Telemetry Merge (v7.5.1)"
+name: "Codex Telemetry Merge (v7.5.3)"
 
 # yamllint disable-line rule:truthy
 on:
@@ -14,62 +14,83 @@ env:
   GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
 jobs:
-  merge_telemetry:
+  telemetry-merge:
     runs-on: ubuntu-latest
 
     steps:
-      # ------------------------------------------------------------
-      # 1. Checkout gh-pages branch (must commit there)
-      # ------------------------------------------------------------
       - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           path: gh-pages
-          fetch-depth: 0
-          persist-credentials: false   # always false in Codex v7+
 
-      # ------------------------------------------------------------
-      # 2. Checkout repository (unused but standard for all Codex workflows)
-      # ------------------------------------------------------------
-      - name: Checkout repo
+      - name: Checkout main branch
         uses: actions/checkout@v4
         with:
           path: repo
 
-      # ------------------------------------------------------------
-      # 3. Ensure telemetry folders exist
-      # ------------------------------------------------------------
-      - name: Prepare telemetry directories
+      # ------------------------------------------------------------------
+      # Ensure telemetry & dashboard directories exist (self-healing)
+      # ------------------------------------------------------------------
+      - name: Prepare directory structure
         run: |
-          mkdir -p gh-pages/telemetry/diagnostics
-          mkdir -p gh-pages/telemetry/activity
-          mkdir -p gh-pages/telemetry/project-sync
+          mkdir -p gh-pages/telemetry
+          mkdir -p gh-pages/dashboard
           mkdir -p gh-pages/telemetry/merged
 
-      # ------------------------------------------------------------
-      # 4. Collect JSON sources into a merge buffer
-      # ------------------------------------------------------------
+      # ------------------------------------------------------------------
+      # Scan for telemetry files (flat layout)
+      # ------------------------------------------------------------------
       - name: Scan available telemetry
         id: scan
         run: |
           set -euo pipefail
 
-          DIAG=$(ls gh-pages/telemetry/diagnostics/*.json 2>/dev/null | wc -l)
-          ACT=$(ls gh-pages/telemetry/activity/*.json 2>/dev/null | wc -l)
-          PSYNC=$(ls gh-pages/telemetry/project-sync/*.json 2>/dev/null | wc -l)
+          DIAG=$(ls gh-pages/telemetry/diagnostics-*.json 2>/dev/null | wc -l || true)
+          ACT=$(ls gh-pages/telemetry/activity-*.json 2>/dev/null | wc -l || true)
+          PSYNC=$(ls gh-pages/telemetry/project-sync-*.json 2>/dev/null | wc -l || true)
 
           echo "diag_count=$DIAG" >> "$GITHUB_OUTPUT"
           echo "activity_count=$ACT" >> "$GITHUB_OUTPUT"
           echo "psync_count=$PSYNC" >> "$GITHUB_OUTPUT"
 
-      # ------------------------------------------------------------
-      # 5. Produce merged JSON payload
-      # ------------------------------------------------------------
+      # ------------------------------------------------------------------
+      # Merge telemetry into a single array
+      # ------------------------------------------------------------------
       - name: Merge telemetry
+        id: merge
         run: |
           set -euo pipefail
 
-          OUT="gh-pages/telemetry/merged/telemetry-merged-$(date -u +"%Y%m%dT%H%M%SZ").json"
+          OUTFILE="gh-pages/dashboard/dashboard.json"
 
-          echo
+          # Collect all telemetry files (flat)
+          FILES=$(ls gh-pages/telemetry/*-*.json 2>/dev/null || true)
+
+          if [ -z "$FILES" ]; then
+            echo "[] " > "$OUTFILE"
+            echo "Merged empty telemetry set"
+            exit 0
+          fi
+
+          # Merge using jq
+          jq -s 'flatten' $FILES > "$OUTFILE"
+
+          echo "Telemetry merged into $OUTFILE"
+
+      # ------------------------------------------------------------------
+      # Commit and push updated dashboard.json
+      # ------------------------------------------------------------------
+      - name: Commit and push merged telemetry
+        run: |
+          set -euo pipefail
+          cd gh-pages
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add dashboard/dashboard.json
+
+          git commit -m "Telemetry merge update" || echo "No changes to commit"
+
+          git push origin gh-pages
