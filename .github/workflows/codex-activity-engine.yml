@@ -1,5 +1,5 @@
 ---
-name: "Codex Activity Engine (v4)"
+name: "Codex Activity Engine (v7)"
 
 # yamllint disable-line rule:truthy
 on:
@@ -9,59 +9,141 @@ on:
 
 permissions:
   contents: write
-  issues: read
+  issues: write
 
 env:
   GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-  CODEX_COMPONENT: activity
 
 jobs:
   activity:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout gh-pages
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Checkout gh-pages branch
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           path: gh-pages
 
-      - name: Pull activity
-        id: act
-        working-directory: repo
+      - name: Ensure telemetry directories exist
+        run: |
+          mkdir -p gh-pages/telemetry
+          mkdir -p gh-pages/telemetry/merged
+
+      - name: Load Codex milestone variables
+        id: cfg
+        run: |
+          set -euo pipefail
+
+          getv() {
+            gh variable get "$1" --json value | jq -r '.value'
+          }
+
+          MAIN_MS="$(getv CODEX_MAIN_MILESTONE)"
+          DASH_MS="$(getv CODEX_DASHBOARD_MILESTONE)"
+          SELFTEST_MS="$(getv CODEX_SELFTEST_MILESTONE)"
+
+          echo "MAIN_MS=$MAIN_MS" >> "$GITHUB_OUTPUT"
+          echo "DASH_MS=$DASH_MS" >> "$GITHUB_OUTPUT"
+          echo "SELFTEST_MS=$SELFTEST_MS" >> "$GITHUB_OUTPUT"
+
+          echo "Loaded milestones:"
+          echo "  main=$MAIN_MS"
+          echo "  dashboard=$DASH_MS"
+          echo "  selftest=$SELFTEST_MS"
+
+      - name: Fetch recent Codex activity (issues + PRs)
+        id: fetch
         run: |
           set -euo pipefail
 
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
-          events=$(gh api "/repos/$OWNER/$REPO/issues/events" \
-            -f per_page=100)
+          # Get issues
+          issues_json="$(gh issue list \
+            --repo "$OWNER/$REPO" \
+            --state all \
+            --label codex \
+            --limit 200 \
+            --json number,title,updatedAt,labels,milestone \
+          )"
 
-          summary=$(echo "$events" | jq '[.[] | {event, issue: .issue.number, created_at}]')
+          # Get PRs touching Codex
+          prs_json="$(gh pr list \
+            --repo "$OWNER/$REPO" \
+            --state all \
+            --limit 200 \
+            --json number,title,updatedAt,labels \
+          )"
 
-          echo "events=$summary" >> "$GITHUB_OUTPUT"
+          echo "$issues_json" > issues.json
+          echo "$prs_json" > prs.json
 
-      - name: Write Telemetry (Always-On)
-        if: always()
-        working-directory: gh-pages
+          echo "Fetched issues: $(jq length issues.json)"
+          echo "Fetched PRs: $(jq length prs.json)"
+
+      - name: Process activity entries
         run: |
-          mkdir -p telemetry
-          ts="$(date -u +"%Y%m%dT%H%M%SZ")"
-          outfile="telemetry/activity-$ts.json"
+          set -euo pipefail
+
+          MAIN_MS="${{ steps.cfg.outputs.MAIN_MS }}"
+          DASH_MS="${{ steps.cfg.outputs.DASH_MS }}"
+          SELFTEST_MS="${{ steps.cfg.outputs.SELFTEST_MS }}"
+
+          OWNER="${GITHUB_REPOSITORY%/*}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+
+          echo "=== Processing issues ==="
+          jq -c '.[]' issues.json | while read -r issue; do
+            num=$(echo "$issue" | jq -r '.number')
+            title=$(echo "$issue" | jq -r '.title')
+            updated=$(echo "$issue" | jq -r '.updatedAt')
+            labels=$(echo "$issue" | jq -r '.labels[].name')
+
+            echo "→ Issue #$num — $title"
+            echo "  Last updated: $updated"
+            echo "  Labels: $(echo "$labels" | tr '\n' ' ')"
+          done
+
+          echo "=== Processing PRs ==="
+          jq -c '.[]' prs.json | while read -r pr; do
+            num=$(echo "$pr" | jq -r '.number')
+            title=$(echo "$pr" | jq -r '.title')
+            updated=$(echo "$pr" | jq -r '.updatedAt')
+            labels=$(echo "$pr" | jq -r '.labels[].name? // empty')
+
+            echo "→ PR #$num — $title"
+            echo "  Last updated: $updated"
+            echo "  Labels: $(echo "$labels" | tr '\n' ' ')"
+          done
+
+      - name: Write telemetry entry
+        run: |
+          set -euo pipefail
+
+          outfile="gh-pages/telemetry/activity-$(date -u +"%Y-%m-%dT%H%M%SZ").json"
 
           {
             printf '{\n'
-            printf '  "component": "activity",\n'
+            printf '  "component": "activity-engine",\n'
             printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            printf '  "events": %s,\n' '${{ steps.act.outputs.events }}'
             printf '  "repository": "%s"\n' "$GITHUB_REPOSITORY"
             printf '}\n'
           } > "$outfile"
 
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "Wrote telemetry: $outfile"
 
+      - name: Commit telemetry
+        run: |
+          cd gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add telemetry/*.json
-          git commit -m "Activity telemetry update" || echo "No changes"
+          git commit -m "Codex Activity Engine telemetry" || echo "No changes"
           git push origin gh-pages
