@@ -1,10 +1,10 @@
 ---
-name: Codex Project Sync (v9.7)
+name: Codex Project Sync (v9.8)
 
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "15 */4 * * *"
+    - cron: "15 */4 * * *"   # every 4 hours
   workflow_dispatch: {}
 
 permissions:
@@ -33,28 +33,33 @@ jobs:
       - name: Prepare telemetry directory
         run: mkdir -p gh-pages/telemetry/project-sync
 
-      - name: Load Milestone Configuration
-        id: cfg
-        run: |
-          echo "main_ms=${CODEX_MAIN_MILESTONE:-}" >> $GITHUB_OUTPUT
-          echo "dash_ms=${CODEX_DASHBOARD_MILESTONE:-}" >> $GITHUB_OUTPUT
-          echo "selftest_ms=${CODEX_SELFTEST_MILESTONE:-}" >> $GITHUB_OUTPUT
-
       - name: Sync Codex Issues
         id: sync
         working-directory: repo
-        env:
-          MAIN_MS: ${{ steps.cfg.outputs.main_ms }}
-          DASH_MS: ${{ steps.cfg.outputs.dash_ms }}
-          SELFTEST_MS: ${{ steps.cfg.outputs.selftest_ms }}
         run: |
           set -euo pipefail
 
-          echo "Milestones:"
-          echo "  MAIN_MS      = $MAIN_MS"
-          echo "  DASH_MS      = $DASH_MS"
-          echo "  SELFTEST_MS  = $SELFTEST_MS"
+          echo "Loading Codex milestone configuration from repo variables..."
 
+          MAIN_MS=$(gh variable get CODEX_MAIN_MILESTONE -q 2>/dev/null || echo "")
+          DASH_MS=$(gh variable get CODEX_DASHBOARD_MILESTONE -q 2>/dev/null || echo "")
+          SELFTEST_MS=$(gh variable get CODEX_SELFTEST_MILESTONE -q 2>/dev/null || echo "")
+
+          echo "Milestones:"
+          echo "  MAIN_MS      = ${MAIN_MS:-<missing>}"
+          echo "  DASH_MS      = ${DASH_MS:-<missing>}"
+          echo "  SELFTEST_MS  = ${SELFTEST_MS:-<missing>}"
+
+          if [ -z "$MAIN_MS" ] || [ -z "$DASH_MS" ] || [ -z "$SELFTEST_MS" ]; then
+            echo "ERROR: One or more Codex milestone variables are missing."
+            echo "Expected repo variables:"
+            echo "  CODEX_MAIN_MILESTONE"
+            echo "  CODEX_DASHBOARD_MILESTONE"
+            echo "  CODEX_SELFTEST_MILESTONE"
+            exit 1
+          fi
+
+          echo "Fetching Codex issues..."
           raw="$(gh api "/repos/$GITHUB_REPOSITORY/issues?state=all&labels=codex&per_page=100")"
 
           echo "$raw" | jq -c '.[]' | while read -r issue; do
@@ -76,14 +81,14 @@ jobs:
 
             elif [[ "$IS_MAIN" == "true" ]]; then
               TARGET="$MAIN_MS"
-              echo " → Main → milestone $TARGET"
+              echo " → Main track → milestone $TARGET"
 
             elif [[ "$IS_DASH" == "true" ]]; then
               TARGET="$DASH_MS"
-              echo " → Dashboard → milestone $TARGET"
+              echo " → Dashboard track → milestone $TARGET"
 
             else
-              echo " → Codex-only trackless → Leaving unassigned, marking needs-attention"
+              echo " → Trackless Codex issue → leaving milestone empty, adding needs-attention"
               gh issue edit "$num" --add-label "needs-attention"
               continue
             fi
@@ -101,22 +106,30 @@ jobs:
             fi
           done
 
-          echo "sync_status=ok" >> $GITHUB_OUTPUT
+          echo "sync_status=ok" >> "$GITHUB_OUTPUT"
 
       - name: Write Telemetry
         if: always()
         run: |
           mkdir -p gh-pages/telemetry/project-sync
           outfile="gh-pages/telemetry/project-sync/sync-$(date -u +"%Y%m%dT%H%M%SZ").json"
-          echo '{"component":"project-sync","status":"completed"}' > "$outfile"
+          {
+            printf '{\n'
+            printf '  "component": "project-sync",\n'
+            printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            printf '  "status": "%s"\n' "${{ steps.sync.outputs.sync_status || 'failed' }}"
+            printf '}\n'
+          } > "$outfile"
 
-      - name: Push Telemetry
+      - name: Commit & Push Telemetry
         if: always()
         working-directory: gh-pages
         run: |
+          set -euo pipefail
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git add telemetry/project-sync/*.json || true
-          git commit -m "Project Sync telemetry update" || exit 0
+          git commit -m "Codex Project Sync telemetry update" || exit 0
           git push origin gh-pages
