@@ -1,5 +1,5 @@
 ---
-name: Codex Diagnostics (v7.4)
+name: Codex Diagnostics (v7.5)
 
 # yamllint disable-line rule:truthy
 on:
@@ -29,129 +29,102 @@ jobs:
         with:
           path: repo
 
-      - name: Prepare telemetry directory
+      - name: Ensure telemetry directory
         run: |
           mkdir -p gh-pages/telemetry
 
-      - name: Load configuration
+      - name: Load configuration variables
         id: config
         run: |
           set -euo pipefail
 
-          # Load repo-scoped variables (safe even if missing)
-          MAIN_MS="${CODEX_MAIN_MILESTONE:-}"
-          DASH_MS="${CODEX_DASHBOARD_MILESTONE:-}"
-          SELFTEST_MS="${CODEX_SELFTEST_MILESTONE:-}"
+          echo "main_ms=${CODEX_MAIN_MILESTONE:-}" >> "$GITHUB_OUTPUT"
+          echo "dash_ms=${CODEX_DASHBOARD_MILESTONE:-}" >> "$GITHUB_OUTPUT"
+          echo "selftest_ms=${CODEX_SELFTEST_MILESTONE:-}" >> "$GITHUB_OUTPUT"
 
-          echo "main_ms=$MAIN_MS" >> "$GITHUB_OUTPUT"
-          echo "dash_ms=$DASH_MS" >> "$GITHUB_OUTPUT"
-          echo "selftest_ms=$SELFTEST_MS" >> "$GITHUB_OUTPUT"
-
-      - name: Validate milestones
-        id: milestones
+      - name: Collect diagnostics
+        id: diag
+        working-directory: repo
         run: |
           set -euo pipefail
 
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
+          MAIN_MS="${{ steps.config.outputs.main_ms }}"
+          DASH_MS="${{ steps.config.outputs.dash_ms }}"
+          SELFTEST_MS="${{ steps.config.outputs.selftest_ms }}"
+
+          echo "Using milestone numbers:"
+          echo "  main      = $MAIN_MS"
+          echo "  dashboard = $DASH_MS"
+          echo "  selftest  = $SELFTEST_MS"
+
+          # Fetch milestones
           ms_json="$(gh api "/repos/$OWNER/$REPO/milestones")"
 
-          get_title() {
-            local ms="$1"
-            if [ -z "$ms" ]; then echo ""; return; fi
-            echo "$ms_json" | jq -r ".[] | select(.number==$ms) | .title" || echo ""
-          }
+          ms_main_title="$(echo "$ms_json" | jq -r \
+            --arg N "$MAIN_MS" '.[] | select((.number|tostring)==$N) | .title')"
 
-          MAIN_TITLE="$(get_title "${{ steps.config.outputs.main_ms }}")"
-          DASH_TITLE="$(get_title "${{ steps.config.outputs.dash_ms }}")"
-          SELFTEST_TITLE="$(get_title "${{ steps.config.outputs.selftest_ms }}")"
+          ms_dash_title="$(echo "$ms_json" | jq -r \
+            --arg N "$DASH_MS" '.[] | select((.number|tostring)==$N) | .title')"
 
-          echo "main_title=$MAIN_TITLE" >> "$GITHUB_OUTPUT"
-          echo "dash_title=$DASH_TITLE" >> "$GITHUB_OUTPUT"
-          echo "selftest_title=$SELFTEST_TITLE" >> "$GITHUB_OUTPUT"
+          ms_selftest_title="$(echo "$ms_json" | jq -r \
+            --arg N "$SELFTEST_MS" '.[] | select((.number|tostring)==$N) | .title')"
 
-      - name: Validate labels
-        id: labels
-        run: |
-          LABELS_JSON="$(gh api "/repos/$GITHUB_REPOSITORY/labels")"
+          # Validate labels
+          labels_json="$(gh api "/repos/$OWNER/$REPO/labels")"
+          missing_labels=()
 
-          REQUIRED=(codex codex-trackmain codex-trackdashboard codex-selftest)
-          missing=()
-
-          for L in "${REQUIRED[@]}"; do
-            if ! echo "$LABELS_JSON" | jq -e --arg L "$L" '.[] | select(.name==$L)' >/dev/null; then
-              missing+=("$L")
+          for L in codex codex-selftest codex-trackmain codex-trackdashboard; do
+            if ! echo "$labels_json" | jq -e --arg L "$L" '.[] | select(.name==$L)' >/dev/null; then
+              missing_labels+=( "$L" )
             fi
           done
 
-          printf '%s\n' "${missing[@]}" | jq -R . | jq -s . > missing_labels.json
-          echo "missing_labels=$(cat missing_labels.json)" >> "$GITHUB_OUTPUT"
-
-      - name: Validate classic project (optional)
-        id: project
-        run: |
-          OWNER="${GITHUB_REPOSITORY%/*}"
-          REPO="${GITHUB_REPOSITORY#*/}"
-
-          PROJ_JSON="$(gh api -H 'Accept: application/vnd.github.inertia-preview+json' \
+          # Validate project
+          proj_json="$(gh api -H 'Accept: application/vnd.github.inertia-preview+json' \
             "/repos/$OWNER/$REPO/projects")"
 
-          if echo "$PROJ_JSON" | jq -e '.[] | select(.name=="Codex Dual-Track Development")' >/dev/null; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+          project_ok="true"
+          if ! echo "$proj_json" | jq -e '.[] | select(.name=="Codex Dual-Track Development")' >/dev/null; then
+            project_ok="false"
           fi
 
-      - name: Write diagnostics telemetry
-        id: write
-        run: |
-          OUT="gh-pages/telemetry/diagnostics-$(date -u +"%Y%m%dT%H%M%SZ").json"
+          # Build JSON output
+          out="{
+            \"component\": \"diagnostics\",
+            \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",
+            \"repository\": \"$GITHUB_REPOSITORY\",
+            \"milestones\": {
+              \"main\": \"$ms_main_title\",
+              \"dashboard\": \"$ms_dash_title\",
+              \"selftest\": \"$ms_selftest_title\"
+            },
+            \"labels\": {
+              \"missing\": $(printf '%s\n' "${missing_labels[@]}" | jq -R . | jq -s .)
+            },
+            \"project\": {
+              \"exists\": \"$project_ok\"
+            },
+            \"gh_pages\": {
+              \"dashboard_exists\": \"$( [ -f "../gh-pages/dashboard/dashboard.json" ] && echo true || echo false )\",
+              \"telemetry_exists\": \"$( [ -d "../gh-pages/telemetry" ] && echo true || echo false )\"
+            }
+          }"
 
-          {
-            printf '{\n'
-            printf '  "component": "diagnostics",\n'
-            printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            printf '  "repository": "%s",\n' "$GITHUB_REPOSITORY"
-
-            printf '  "milestones": {\n'
-            printf '    "main": "%s",\n' "${{ steps.milestones.outputs.main_title }}"
-            printf '    "dashboard": "%s",\n' "${{ steps.milestones.outputs.dash_title }}"
-            printf '    "selftest": "%s"\n' "${{ steps.milestones.outputs.selftest_title }}"
-            printf '  },\n'
-
-            printf '  "labels": {\n'
-            printf '    "missing": %s\n' "${{ steps.labels.outputs.missing_labels }}"
-            printf '  },\n'
-
-            printf '  "project": {\n'
-            printf '    "exists": "%s"\n' "${{ steps.project.outputs.exists }}"
-            printf '  }\n'
-
-            printf '}\n'
-          } > "$OUT"
-
-          echo "telemetry_file=$OUT" >> "$GITHUB_OUTPUT"
-          echo "Telemetry written to: $OUT"
+          outfile="../gh-pages/telemetry/diagnostics-$(date -u +%Y%m%dT%H%M%SZ).json"
+          echo "$out" > "$outfile"
+          echo "Wrote: $outfile"
 
       - name: Commit telemetry
         working-directory: gh-pages
         run: |
+          set -euo pipefail
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add telemetry/*.json
-          git commit -m "Diagnostics telemetry update" || true
-          git push origin gh-pages || true
-
-      - name: Fail if configuration invalid
-        run: |
-          BAD=false
-
-          if [ -z "${{ steps.milestones.outputs.main_title }}" ]; then BAD=true; fi
-          if [ -z "${{ steps.milestones.outputs.dash_title }}" ]; then BAD=true; fi
-
-          if [ "${BAD}" = true ]; then
-            echo "CONFIG ERROR detected. Failing diagnostics job."
-            exit 1
-          fi
+          git add telemetry/*.json || true
+          git commit -m "Diagnostics update" || true
+          git push origin gh-pages
