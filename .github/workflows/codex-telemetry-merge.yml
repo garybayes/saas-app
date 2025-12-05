@@ -1,5 +1,5 @@
 ---
-name: "Codex Telemetry Merge (v7.5.3)"
+name: "Codex Telemetry Merge (v7.5.4)"
 
 # yamllint disable-line rule:truthy
 on:
@@ -24,64 +24,71 @@ jobs:
           ref: gh-pages
           path: gh-pages
 
-      - name: Checkout main branch
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
           path: repo
 
-      # ------------------------------------------------------------------
-      # Ensure telemetry & dashboard directories exist (self-healing)
-      # ------------------------------------------------------------------
+      # ---------------------------------------------------------
+      # Ensure directory structure exists (self-healing)
+      # ---------------------------------------------------------
       - name: Prepare directory structure
         run: |
           mkdir -p gh-pages/telemetry
-          mkdir -p gh-pages/dashboard
           mkdir -p gh-pages/telemetry/merged
+          mkdir -p gh-pages/dashboard
 
-      # ------------------------------------------------------------------
-      # Scan for telemetry files (flat layout)
-      # ------------------------------------------------------------------
-      - name: Scan available telemetry
-        id: scan
+      # ---------------------------------------------------------
+      # Validate & filter JSON files (skip corrupted files)
+      # ---------------------------------------------------------
+      - name: Validate JSON files
+        id: validate
         run: |
           set -euo pipefail
 
-          DIAG=$(ls gh-pages/telemetry/diagnostics-*.json 2>/dev/null | wc -l || true)
-          ACT=$(ls gh-pages/telemetry/activity-*.json 2>/dev/null | wc -l || true)
-          PSYNC=$(ls gh-pages/telemetry/project-sync-*.json 2>/dev/null | wc -l || true)
+          VALID_FILES=""
+          INVALID_FILES=""
 
-          echo "diag_count=$DIAG" >> "$GITHUB_OUTPUT"
-          echo "activity_count=$ACT" >> "$GITHUB_OUTPUT"
-          echo "psync_count=$PSYNC" >> "$GITHUB_OUTPUT"
+          for f in gh-pages/telemetry/*.json; do
+            [ -e "$f" ] || continue
 
-      # ------------------------------------------------------------------
-      # Merge telemetry into a single array
-      # ------------------------------------------------------------------
+            if jq empty "$f" 2>/dev/null; then
+              echo "VALID:   $f"
+              VALID_FILES="$VALID_FILES $f"
+            else
+              echo "INVALID: $f"
+              INVALID_FILES="$INVALID_FILES $f"
+            fi
+          done
+
+          echo "valid_files=$VALID_FILES" >> "$GITHUB_OUTPUT"
+          echo "invalid_files=$INVALID_FILES" >> "$GITHUB_OUTPUT"
+
+      # ---------------------------------------------------------
+      # Merge all valid telemetry files into dashboard.json
+      # ---------------------------------------------------------
       - name: Merge telemetry
-        id: merge
         run: |
           set -euo pipefail
 
-          OUTFILE="gh-pages/dashboard/dashboard.json"
-
-          # Collect all telemetry files (flat)
-          FILES=$(ls gh-pages/telemetry/*-*.json 2>/dev/null || true)
+          OUT="gh-pages/dashboard/dashboard.json"
+          FILES="${{ steps.validate.outputs.valid_files }}"
 
           if [ -z "$FILES" ]; then
-            echo "[] " > "$OUTFILE"
-            echo "Merged empty telemetry set"
+            echo "[] " > "$OUT"
+            echo "No valid telemetry files. Wrote empty dashboard."
             exit 0
           fi
 
-          # Merge using jq
-          jq -s 'flatten' $FILES > "$OUTFILE"
+          # Safe merge only valid JSON files
+          jq -s 'flatten' $FILES > "$OUT"
 
-          echo "Telemetry merged into $OUTFILE"
+          echo "Merged telemetry into $OUT"
 
-      # ------------------------------------------------------------------
-      # Commit and push updated dashboard.json
-      # ------------------------------------------------------------------
-      - name: Commit and push merged telemetry
+      # ---------------------------------------------------------
+      # Commit/push updated dashboard.json
+      # ---------------------------------------------------------
+      - name: Commit and push
         run: |
           set -euo pipefail
           cd gh-pages
@@ -90,7 +97,5 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git add dashboard/dashboard.json
-
-          git commit -m "Telemetry merge update" || echo "No changes to commit"
-
+          git commit -m "Telemetry merge update" || echo "No changes"
           git push origin gh-pages
