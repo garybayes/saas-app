@@ -13,6 +13,11 @@ permissions:
 env:
   GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
+  # Inject repo variables into job environment
+  CODEX_MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
+  CODEX_DASHBOARD_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
+  CODEX_SELFTEST_MILESTONE: ${{ vars.CODEX_SELFTEST_MILESTONE }}
+
 jobs:
   diagnostics:
     runs-on: ubuntu-latest
