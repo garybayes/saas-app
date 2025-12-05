@@ -1,5 +1,5 @@
 ---
-name: Codex Diagnostics (v7.6)
+name: Codex Diagnostics (v7.7)
 
 # yamllint disable-line rule:truthy
 on:
@@ -11,108 +11,129 @@ permissions:
   contents: write
 
 env:
-  # Use your repo-scoped PAT
   GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-
-  # Import all CODEX config variables explicitly
-  CODEX_MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
-  CODEX_DASHBOARD_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
-  CODEX_SELFTEST_MILESTONE: ${{ vars.CODEX_SELFTEST_MILESTONE }}
-
-  CODEX_MAIN_STALE_DAYS: ${{ vars.CODEX_MAIN_STALE_DAYS }}
-  CODEX_MAIN_ESCALATION_DAYS: ${{ vars.CODEX_MAIN_ESCALATION_DAYS }}
-
-  CODEX_DASHBOARD_STALE_DAYS: ${{ vars.CODEX_DASHBOARD_STALE_DAYS }}
-  CODEX_DASHBOARD_ESCALATION_DAYS: ${{ vars.CODEX_DASHBOARD_ESCALATION_DAYS }}
-
-  CODEX_SELFTEST_RETAIN: ${{ vars.CODEX_SELFTEST_RETAIN }}
-  CODEX_SELFTEST_MAX_AGE_DAYS: ${{ vars.CODEX_SELFTEST_MAX_AGE_DAYS }}
-
-  CODEX_TELEMETRY_MAX_AGE_DAYS: ${{ vars.CODEX_TELEMETRY_MAX_AGE_DAYS }}
 
 jobs:
   diagnostics:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout gh-pages
+      - name: Checkout gh-pages branch
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           path: gh-pages
 
-      - name: Checkout repository
+      - name: Checkout main repo
         uses: actions/checkout@v4
         with:
           path: repo
 
-      - name: Ensure telemetry directories
-        run: |
-          mkdir -p gh-pages/telemetry
-          mkdir -p gh-pages/telemetry/merged
+      - name: Ensure telemetry directory exists
+        run: mkdir -p gh-pages/telemetry
 
-      - name: Run diagnostics
+      - name: Run Diagnostics
         id: diag
-        working-directory: repo
         run: |
           set -euo pipefail
+          echo "Running diagnostics for $GITHUB_REPOSITORY"
 
-          OWNER="${GITHUB_REPOSITORY%/*}"
-          REPO="${GITHUB_REPOSITORY#*/}"
+          #
+          # 1. Resolve OWNER/REPO safely
+          #
+          if [[ -z "${GITHUB_REPOSITORY:-}" ]]; then
+            echo "ERROR: GITHUB_REPOSITORY is empty"
+            exit 1
+          fi
 
-          echo "Running diagnostics for $OWNER/$REPO"
-          echo "Milestones: main=${CODEX_MAIN_MILESTONE:-}, dash=${CODEX_DASHBOARD_MILESTONE:-}, selftest=${CODEX_SELFTEST_MILESTONE:-}"
+          OWNER="$(printf "%s" "$GITHUB_REPOSITORY" | cut -d'/' -f1)"
+          REPO="$(printf "%s" "$GITHUB_REPOSITORY" | cut -d'/' -f2)"
 
-          # Fetch milestones
+          if [[ -z "$OWNER" || -z "$REPO" ]]; then
+            echo "ERROR: OWNER/REPO could not be parsed"
+            exit 1
+          fi
+
+          echo "OWNER=$OWNER"
+          echo "REPO=$REPO"
+
+          #
+          # 2. Verify repo exists (prevents mysterious 404s)
+          #
+          if ! gh api "/repos/$OWNER/$REPO" >/dev/null 2>&1; then
+            echo "ERROR: GitHub API could not access repository /repos/$OWNER/$REPO"
+            exit 1
+          fi
+
+          #
+          # 3. Load milestone variables
+          #
+          MAIN_MS="${CODEX_MAIN_MILESTONE:-}"
+          DASH_MS="${CODEX_DASHBOARD_MILESTONE:-}"
+          SELFTEST_MS="${CODEX_SELFTEST_MILESTONE:-}"
+
+          if [[ -z "$MAIN_MS" || -z "$DASH_MS" || -z "$SELFTEST_MS" ]]; then
+            echo "ERROR: One or more milestone variables are missing:"
+            echo "  MAIN_MS=$MAIN_MS"
+            echo "  DASH_MS=$DASH_MS"
+            echo "  SELFTEST_MS=$SELFTEST_MS"
+            CONFIG_ERROR="true"
+          else
+            echo "Using milestone numbers:"
+            echo "  main      = $MAIN_MS"
+            echo "  dashboard = $DASH_MS"
+            echo "  selftest  = $SELFTEST_MS"
+          fi
+
+          #
+          # 4. Fetch milestones
+          #
           ms_json="$(gh api "/repos/$OWNER/$REPO/milestones")"
 
-          get_ms_title() {
-            local num="$1"
-            echo "$ms_json" | jq -r ".[] | select(.number == ($num|tonumber)) | .title"
-          }
+          # Pull milestone titles safely
+          ms_main_title=$(echo "$ms_json" | jq -r \
+            --arg ms "$MAIN_MS" '.[] | select((.number|tostring)==$ms) | .title // empty')
 
-          ms_main_title="$(get_ms_title "$CODEX_MAIN_MILESTONE")"
-          ms_dash_title="$(get_ms_title "$CODEX_DASHBOARD_MILESTONE")"
-          ms_self_title="$(get_ms_title "$CODEX_SELFTEST_MILESTONE")"
+          ms_dash_title=$(echo "$ms_json" | jq -r \
+            --arg ms "$DASH_MS" '.[] | select((.number|tostring)==$ms) | .title // empty')
 
-          # Validate missing milestones
-          missing_ms=()
-          [[ -z "$ms_main_title" ]] && missing_ms+=("main")
-          [[ -z "$ms_dash_title" ]] && missing_ms+=("dashboard")
-          [[ -z "$ms_self_title" ]] && missing_ms+=("selftest")
+          ms_self_title=$(echo "$ms_json" | jq -r \
+            --arg ms "$SELFTEST_MS" '.[] | select((.number|tostring)==$ms) | .title // empty')
 
-          # Fetch and validate labels
+          if [[ -z "$ms_main_title" || -z "$ms_dash_title" || -z "$ms_self_title" ]]; then
+            echo "ERROR: One or more milestone numbers do not match an existing milestone"
+            CONFIG_ERROR="true"
+          fi
+
+          #
+          # 5. Validate required labels
+          #
           labels_json="$(gh api "/repos/$OWNER/$REPO/labels")"
-          need_labels=(codex codex-selftest codex-trackmain codex-trackdashboard)
-          missing_labels=()
 
-          for lbl in "${need_labels[@]}"; do
+          required_labels=(
+            codex
+            codex-selftest
+            codex-trackmain
+            codex-trackdashboard
+          )
+
+          missing_labels=()
+          for lbl in "${required_labels[@]}"; do
             if ! echo "$labels_json" | jq -e --arg L "$lbl" '.[] | select(.name==$L)' >/dev/null; then
-              missing_labels+=("$lbl")
+              missing_labels+=( "$lbl" )
             fi
           done
 
-          # Project check
-          proj_json="$(gh api "/repos/$OWNER/$REPO/projects" -H 'Accept: application/vnd.github.inertia-preview+json')"
-          project_exists="false"
-          if echo "$proj_json" | jq -e '.[] | select(.name=="Codex Dual-Track Development")' >/dev/null 2>&1; then
-            project_exists="true"
-          fi
-
-          # gh-pages structure
-          dash_exists="false"
-          tel_exists="false"
-
-          [[ -f "../gh-pages/dashboard/dashboard.json" ]] && dash_exists="true"
-          [[ -d "../gh-pages/telemetry" ]] && tel_exists="true"
-
-          # Output file
-          outfile="../gh-pages/telemetry/diagnostics-$(date -u +"%Y%m%dT%H%M%SZ").json"
+          #
+          # 6. Build telemetry payload
+          #
+          ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          outfile="gh-pages/telemetry/diagnostics-${ts//:/}.json"
 
           {
             printf '{\n'
             printf '  "component": "diagnostics",\n'
-            printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            printf '  "timestamp": "%s",\n' "$ts"
             printf '  "repository": "%s",\n' "$GITHUB_REPOSITORY"
 
             printf '  "milestones": {\n'
@@ -121,35 +142,29 @@ jobs:
             printf '    "selftest": "%s"\n' "$ms_self_title"
             printf '  },\n'
 
-            printf '  "labels": {\n'
-            printf '    "missing": %s\n' "$(printf '%s\n' "${missing_labels[@]}" | jq -R . | jq -s .)"
-            printf '  },\n'
+            printf '  "missing_labels": %s,\n' \
+              "$(printf '%s\n' "${missing_labels[@]}" | jq -R . | jq -s .)"
 
-            printf '  "project": {\n'
-            printf '    "exists": "%s"\n' "$project_exists"
-            printf '  },\n'
-
-            printf '  "gh_pages": {\n'
-            printf '    "dashboard_exists": "%s",\n' "$dash_exists"
-            printf '    "telemetry_exists": "%s"\n' "$tel_exists"
-            printf '  }\n'
-
+            printf '  "config_error": "%s"\n' "${CONFIG_ERROR:-false}"
             printf '}\n'
           } > "$outfile"
 
           echo "Wrote diagnostics to: $outfile"
 
-          if (( ${#missing_ms[@]} > 0 )); then
-            echo "CONFIG ERROR: missing milestones: ${missing_ms[*]}"
+          #
+          # 7. Fail workflow if config error detected
+          #
+          if [[ "${CONFIG_ERROR:-false}" == "true" ]]; then
+            echo "CONFIG ERROR detected. Failing diagnostics job."
             exit 1
           fi
 
-      - name: Commit diagnostics
+      - name: Commit telemetry
+        if: always()
         run: |
-          set -e
           cd gh-pages
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add telemetry/*.json || true
-          git commit -m "Diagnostics update" || echo "No changes to commit"
-          git push origin gh-
+          git commit -m "Diagnostics Telemetry Update" || echo "No changes"
+          git push origin gh-pages
