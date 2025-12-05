@@ -1,5 +1,5 @@
 ---
-name: Codex Diagnostics (v7.5)
+name: Codex Diagnostics (v7.6)
 
 # yamllint disable-line rule:truthy
 on:
@@ -11,7 +11,24 @@ permissions:
   contents: write
 
 env:
+  # Use your repo-scoped PAT
   GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+
+  # Import all CODEX config variables explicitly
+  CODEX_MAIN_MILESTONE: ${{ vars.CODEX_MAIN_MILESTONE }}
+  CODEX_DASHBOARD_MILESTONE: ${{ vars.CODEX_DASHBOARD_MILESTONE }}
+  CODEX_SELFTEST_MILESTONE: ${{ vars.CODEX_SELFTEST_MILESTONE }}
+
+  CODEX_MAIN_STALE_DAYS: ${{ vars.CODEX_MAIN_STALE_DAYS }}
+  CODEX_MAIN_ESCALATION_DAYS: ${{ vars.CODEX_MAIN_ESCALATION_DAYS }}
+
+  CODEX_DASHBOARD_STALE_DAYS: ${{ vars.CODEX_DASHBOARD_STALE_DAYS }}
+  CODEX_DASHBOARD_ESCALATION_DAYS: ${{ vars.CODEX_DASHBOARD_ESCALATION_DAYS }}
+
+  CODEX_SELFTEST_RETAIN: ${{ vars.CODEX_SELFTEST_RETAIN }}
+  CODEX_SELFTEST_MAX_AGE_DAYS: ${{ vars.CODEX_SELFTEST_MAX_AGE_DAYS }}
+
+  CODEX_TELEMETRY_MAX_AGE_DAYS: ${{ vars.CODEX_TELEMETRY_MAX_AGE_DAYS }}
 
 jobs:
   diagnostics:
@@ -29,20 +46,12 @@ jobs:
         with:
           path: repo
 
-      - name: Ensure telemetry directory
+      - name: Ensure telemetry directories
         run: |
           mkdir -p gh-pages/telemetry
+          mkdir -p gh-pages/telemetry/merged
 
-      - name: Load configuration variables
-        id: config
-        run: |
-          set -euo pipefail
-
-          echo "main_ms=${CODEX_MAIN_MILESTONE:-}" >> "$GITHUB_OUTPUT"
-          echo "dash_ms=${CODEX_DASHBOARD_MILESTONE:-}" >> "$GITHUB_OUTPUT"
-          echo "selftest_ms=${CODEX_SELFTEST_MILESTONE:-}" >> "$GITHUB_OUTPUT"
-
-      - name: Collect diagnostics
+      - name: Run diagnostics
         id: diag
         working-directory: repo
         run: |
@@ -51,80 +60,96 @@ jobs:
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
-          MAIN_MS="${{ steps.config.outputs.main_ms }}"
-          DASH_MS="${{ steps.config.outputs.dash_ms }}"
-          SELFTEST_MS="${{ steps.config.outputs.selftest_ms }}"
-
-          echo "Using milestone numbers:"
-          echo "  main      = $MAIN_MS"
-          echo "  dashboard = $DASH_MS"
-          echo "  selftest  = $SELFTEST_MS"
+          echo "Running diagnostics for $OWNER/$REPO"
+          echo "Milestones: main=${CODEX_MAIN_MILESTONE:-}, dash=${CODEX_DASHBOARD_MILESTONE:-}, selftest=${CODEX_SELFTEST_MILESTONE:-}"
 
           # Fetch milestones
           ms_json="$(gh api "/repos/$OWNER/$REPO/milestones")"
 
-          ms_main_title="$(echo "$ms_json" | jq -r \
-            --arg N "$MAIN_MS" '.[] | select((.number|tostring)==$N) | .title')"
+          get_ms_title() {
+            local num="$1"
+            echo "$ms_json" | jq -r ".[] | select(.number == ($num|tonumber)) | .title"
+          }
 
-          ms_dash_title="$(echo "$ms_json" | jq -r \
-            --arg N "$DASH_MS" '.[] | select((.number|tostring)==$N) | .title')"
+          ms_main_title="$(get_ms_title "$CODEX_MAIN_MILESTONE")"
+          ms_dash_title="$(get_ms_title "$CODEX_DASHBOARD_MILESTONE")"
+          ms_self_title="$(get_ms_title "$CODEX_SELFTEST_MILESTONE")"
 
-          ms_selftest_title="$(echo "$ms_json" | jq -r \
-            --arg N "$SELFTEST_MS" '.[] | select((.number|tostring)==$N) | .title')"
+          # Validate missing milestones
+          missing_ms=()
+          [[ -z "$ms_main_title" ]] && missing_ms+=("main")
+          [[ -z "$ms_dash_title" ]] && missing_ms+=("dashboard")
+          [[ -z "$ms_self_title" ]] && missing_ms+=("selftest")
 
-          # Validate labels
+          # Fetch and validate labels
           labels_json="$(gh api "/repos/$OWNER/$REPO/labels")"
+          need_labels=(codex codex-selftest codex-trackmain codex-trackdashboard)
           missing_labels=()
 
-          for L in codex codex-selftest codex-trackmain codex-trackdashboard; do
-            if ! echo "$labels_json" | jq -e --arg L "$L" '.[] | select(.name==$L)' >/dev/null; then
-              missing_labels+=( "$L" )
+          for lbl in "${need_labels[@]}"; do
+            if ! echo "$labels_json" | jq -e --arg L "$lbl" '.[] | select(.name==$L)' >/dev/null; then
+              missing_labels+=("$lbl")
             fi
           done
 
-          # Validate project
-          proj_json="$(gh api -H 'Accept: application/vnd.github.inertia-preview+json' \
-            "/repos/$OWNER/$REPO/projects")"
-
-          project_ok="true"
-          if ! echo "$proj_json" | jq -e '.[] | select(.name=="Codex Dual-Track Development")' >/dev/null; then
-            project_ok="false"
+          # Project check
+          proj_json="$(gh api "/repos/$OWNER/$REPO/projects" -H 'Accept: application/vnd.github.inertia-preview+json')"
+          project_exists="false"
+          if echo "$proj_json" | jq -e '.[] | select(.name=="Codex Dual-Track Development")' >/dev/null 2>&1; then
+            project_exists="true"
           fi
 
-          # Build JSON output
-          out="{
-            \"component\": \"diagnostics\",
-            \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",
-            \"repository\": \"$GITHUB_REPOSITORY\",
-            \"milestones\": {
-              \"main\": \"$ms_main_title\",
-              \"dashboard\": \"$ms_dash_title\",
-              \"selftest\": \"$ms_selftest_title\"
-            },
-            \"labels\": {
-              \"missing\": $(printf '%s\n' "${missing_labels[@]}" | jq -R . | jq -s .)
-            },
-            \"project\": {
-              \"exists\": \"$project_ok\"
-            },
-            \"gh_pages\": {
-              \"dashboard_exists\": \"$( [ -f "../gh-pages/dashboard/dashboard.json" ] && echo true || echo false )\",
-              \"telemetry_exists\": \"$( [ -d "../gh-pages/telemetry" ] && echo true || echo false )\"
-            }
-          }"
+          # gh-pages structure
+          dash_exists="false"
+          tel_exists="false"
 
-          outfile="../gh-pages/telemetry/diagnostics-$(date -u +%Y%m%dT%H%M%SZ).json"
-          echo "$out" > "$outfile"
-          echo "Wrote: $outfile"
+          [[ -f "../gh-pages/dashboard/dashboard.json" ]] && dash_exists="true"
+          [[ -d "../gh-pages/telemetry" ]] && tel_exists="true"
 
-      - name: Commit telemetry
-        working-directory: gh-pages
+          # Output file
+          outfile="../gh-pages/telemetry/diagnostics-$(date -u +"%Y%m%dT%H%M%SZ").json"
+
+          {
+            printf '{\n'
+            printf '  "component": "diagnostics",\n'
+            printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            printf '  "repository": "%s",\n' "$GITHUB_REPOSITORY"
+
+            printf '  "milestones": {\n'
+            printf '    "main": "%s",\n' "$ms_main_title"
+            printf '    "dashboard": "%s",\n' "$ms_dash_title"
+            printf '    "selftest": "%s"\n' "$ms_self_title"
+            printf '  },\n'
+
+            printf '  "labels": {\n'
+            printf '    "missing": %s\n' "$(printf '%s\n' "${missing_labels[@]}" | jq -R . | jq -s .)"
+            printf '  },\n'
+
+            printf '  "project": {\n'
+            printf '    "exists": "%s"\n' "$project_exists"
+            printf '  },\n'
+
+            printf '  "gh_pages": {\n'
+            printf '    "dashboard_exists": "%s",\n' "$dash_exists"
+            printf '    "telemetry_exists": "%s"\n' "$tel_exists"
+            printf '  }\n'
+
+            printf '}\n'
+          } > "$outfile"
+
+          echo "Wrote diagnostics to: $outfile"
+
+          if (( ${#missing_ms[@]} > 0 )); then
+            echo "CONFIG ERROR: missing milestones: ${missing_ms[*]}"
+            exit 1
+          fi
+
+      - name: Commit diagnostics
         run: |
-          set -euo pipefail
-
+          set -e
+          cd gh-pages
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
           git add telemetry/*.json || true
-          git commit -m "Diagnostics update" || true
-          git push origin gh-pages
+          git commit -m "Diagnostics update" || echo "No changes to commit"
+          git push origin gh-
