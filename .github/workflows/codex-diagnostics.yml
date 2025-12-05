@@ -1,141 +1,106 @@
 ---
-name: Codex Diagnostics (v7.4.1)
+name: "Codex Diagnostics (v7.4)"
+
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "50 */6 * * *"
-  workflow_dispatch:
+    - cron: "50 */6 * * *"   # every 6 hours
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+env:
+  CODEX_COMPONENT: diagnostics
+  GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
 jobs:
   diagnostics:
-    name: Diagnostics
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
-      actions: read
-      issues: read
-
-    env:
-      GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
     steps:
       - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
+          path: gh-pages
 
       - name: Checkout main
         uses: actions/checkout@v4
         with:
-          ref: main
-          path: main-src
+          path: repo
 
-      - name: Install tools
+      - name: Start Diagnostics
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
+          echo "Running diagnostics for $GITHUB_REPOSITORY"
 
-      - name: Run Diagnostics
-        shell: bash
+      - name: Validate configuration
+        id: diag
+        working-directory: repo
         run: |
           set -euo pipefail
-
-          echo "Running diagnostics for $GITHUB_REPOSITORY"
 
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
-          REQUIRED_VARS=(
+          required_vars=(
             CODEX_MAIN_MILESTONE
             CODEX_DASHBOARD_MILESTONE
-            CODEX_SELFTEST_MILESTONE
-            CODEX_MAIN_STALE_DAYS
-            CODEX_DASHBOARD_STALE_DAYS
-            CODEX_MAIN_ESCALATION_DAYS
-            CODEX_DASHBOARD_ESCALATION_DAYS
+            CODEX_SELFTEST_RETAIN
+            CODEX_SELFTEST_MAX_AGE_DAYS
             CODEX_TELEMETRY_MAX_AGE_DAYS
+            CODEX_MAIN_STALE_DAYS
+            CODEX_MAIN_ESCALATION_DAYS
+            CODEX_DASHBOARD_STALE_DAYS
+            CODEX_DASHBOARD_ESCALATION_DAYS
           )
 
           missing_vars=()
-          for v in "${REQUIRED_VARS[@]}"; do
+          for v in "${required_vars[@]}"; do
             if ! gh variable get "$v" >/dev/null 2>&1; then
-              missing_vars+=("$v")
+              missing_vars+=( "$v" )
             fi
           done
 
-          # Milestones
           ms_json="$(gh api "/repos/$OWNER/$REPO/milestones")"
-          ms_main=$(echo "$ms_json" | jq -r '.[] | select(.number == env.CODEX_MAIN_MILESTONE) | .title')
-          ms_dash=$(echo "$ms_json" | jq -r '.[] | select(.number == env.CODEX_DASHBOARD_MILESTONE) | .title')
-          ms_self=$(echo "$ms_json" | jq -r '.[] | select(.number == env.CODEX_SELFTEST_MILESTONE) | .title')
+          ms_main=$(echo "$ms_json" | jq -r \
+            '.[] | select((.number|tostring)==env.CODEX_MAIN_MILESTONE) | .title')
+          ms_dash=$(echo "$ms_json" | jq -r \
+            '.[] | select((.number|tostring)==env.CODEX_DASHBOARD_MILESTONE) | .title')
 
-          # Labels
           labels_json="$(gh api "/repos/$OWNER/$REPO/labels")"
-          REQUIRED_LABELS=(codex codex-selftest codex-trackmain codex-trackdashboard)
+          need_labels=(codex codex-selftest codex-trackmain codex-trackdashboard)
           missing_labels=()
 
-          for lbl in "${REQUIRED_LABELS[@]}"; do
-            if ! echo "$labels_json" | jq -e --arg L "$lbl" '.[] | select(.name == $L)' >/dev/null; then
-              missing_labels+=("$lbl")
+          for l in "${need_labels[@]}"; do
+            if ! echo "$labels_json" | jq -e --arg L "$l" '.[] | select(.name==$L)' >/dev/null; then
+              missing_labels+=( "$l" )
             fi
           done
 
-          ##############################
-          # Classic Project Validation #
-          ##############################
-          project_classic_status="unchecked"
-          classic_json="$(gh api -H 'Accept: application/vnd.github.inertia-preview+json' \
-            "/repos/$OWNER/$REPO/projects" 2>/dev/null || echo '404')"
+          proj_json="$(gh api -H 'Accept: application/vnd.github.inertia-preview+json' \
+            "/repos/$OWNER/$REPO/projects")"
 
-          if [[ "$classic_json" == "404" ]]; then
-            project_classic_status="not_supported"
-          else
-            if echo "$classic_json" | jq -e '.[] | select(.name=="Codex Dual-Track Development")' >/dev/null; then
-              project_classic_status="present"
-            else
-              project_classic_status="absent"
-            fi
+          project_ok="true"
+          if ! echo "$proj_json" | jq -e \
+            '.[] | select(.name=="Codex Dual-Track Development")' >/dev/null 2>&1; then
+            project_ok="false"
           fi
 
-          ##############################
-          # User-Level Project Validation #
-          ##############################
-          project_user_status="unchecked"
+          dash_exists="false"
+          tel_exists="false"
 
-          USER_PROJECT_URL="${CODEX_PROJECT_URL:-""}"
-
-          if [[ -n "$USER_PROJECT_URL" ]]; then
-            user_proj_json="$(gh api \
-              -H 'Accept: application/vnd.github+json' \
-              "$(echo "$USER_PROJECT_URL" | sed 's#https://github.com/#/#')" 2>/dev/null || echo '404')"
-
-            if [[ "$user_proj_json" == "404" ]]; then
-              project_user_status="not_found"
-            else
-              project_user_status="present"
-            fi
-          else
-            project_user_status="not_configured"
+          if [ -f "../gh-pages/dashboard/dashboard.json" ]; then
+            dash_exists="true"
           fi
 
-          ##############################
-          # Determine final project_ok #
-          ##############################
-          project_ok="false"
-
-          if [[ "$project_classic_status" == "present" ]]; then
-            project_ok="true"
-          elif [[ "$project_user_status" == "present" ]]; then
-            project_ok="true"
+          if [ -d "../gh-pages/telemetry" ]; then
+            tel_exists="true"
           fi
 
-          ##############################
-          # gh-pages telemetry handling #
-          ##############################
           mkdir -p ../gh-pages/telemetry
 
-          outfile="../gh-pages/telemetry/diagnostics-$(date -u +'%Y%m%dT%H%M%SZ').json"
+          outfile="../gh-pages/telemetry/diagnostics-$(date -u +"%Y%m%dT%H%M%SZ").json"
 
           {
             printf '{\n'
@@ -143,33 +108,39 @@ jobs:
             printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
             printf '  "repository": "%s",\n' "$GITHUB_REPOSITORY"
 
-            printf '  "repo_variables": { "missing": %s },\n' "$(printf '%s\n' "${missing_vars[@]}" | jq -R . | jq -s .)"
-
-            printf '  "milestones": {\n'
-            printf '    "main": "%s",\n' "$ms_main"
-            printf '    "dashboard": "%s",\n' "$ms_dash"
-            printf '    "selftest": "%s"\n' "$ms_self"
+            printf '  "repo_variables": {\n'
+            printf '    "missing": %s\n' "$(printf '%s\n' "${missing_vars[@]}" | jq -R . | jq -s .)"
             printf '  },\n'
 
-            printf '  "labels": { "missing": %s },\n' "$(printf '%s\n' "${missing_labels[@]}" | jq -R . | jq -s .)"
+            printf '  "milestones": {\n'
+            printf '    "main_title": "%s",\n' "$ms_main"
+            printf '    "dashboard_title": "%s"\n' "$ms_dash"
+            printf '  },\n'
 
-            printf '  "projects": {\n'
-            printf '    "classic": "%s",\n' "$project_classic_status"
-            printf '    "user_project_url": "%s",\n' "$USER_PROJECT_URL"
-            printf '    "user": "%s",\n' "$project_user_status"
-            printf '    "overall_ok": "%s"\n' "$project_ok"
+            printf '  "labels": {\n'
+            printf '    "missing": %s\n' "$(printf '%s\n' "${missing_labels[@]}" | jq -R . | jq -s .)"
+            printf '  },\n'
+
+            printf '  "project": {\n'
+            printf '    "exists": "%s"\n' "$project_ok"
+            printf '  },\n'
+
+            printf '  "gh_pages": {\n'
+            printf '    "dashboard_exists": "%s",\n' "$dash_exists"
+            printf '    "telemetry_exists": "%s"\n' "$tel_exists"
             printf '  }\n'
 
             printf '}\n'
           } > "$outfile"
 
-          echo "Wrote diagnostics to: $outfile"
+          echo "outfile=$outfile" >> "$GITHUB_OUTPUT"
 
       - name: Commit telemetry
-        if: always()
+        working-directory: gh-pages
         run: |
-          git config user.name "github-actions[bot]"
+          git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add telemetry/*.json || true
+
+          git add telemetry/*.json
           git commit -m "Diagnostics telemetry update" || echo "No changes"
-          git push origin gh-pages || true
+          git push origin gh-pages

@@ -8,106 +8,103 @@ on:
   workflow_dispatch: {}
 
 permissions:
+  issues: write
   contents: write
+
+env:
+  GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+  CODEX_COMPONENT: supervisor
 
 jobs:
   supervisor:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
-          path: repo
-
-      - name: Configure token
-        env:
-          GH_CI_PAT: ${{ secrets.GH_CI_PAT }}
-        run: |
-          set -euo pipefail
-
-          unset GH_TOKEN || true
-
-          if [ -z "${GH_CI_PAT:-}" ]; then
-            echo "ERROR: GH_CI_PAT missing."
-            exit 1
-          fi
-
-          echo "$GH_CI_PAT" | gh auth login --with-token
+          ref: gh-pages
+          path: gh-pages
 
       - name: Run Supervisor
+        id: sup
         working-directory: repo
-        env:
-          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
         run: |
           set -euo pipefail
-
-          echo "Running Codex Supervisor (v7.3) for $GITHUB_REPOSITORY"
 
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
-          getvar() {
-            gh variable get "$1" \
-              --repo "$OWNER/$REPO" \
-              --json value \
-              --jq '.value'
-          }
+          s_main=$(gh variable get CODEX_MAIN_STALE_DAYS     --repo "$OWNER/$REPO" --jq '.value')
+          e_main=$(gh variable get CODEX_MAIN_ESCALATION_DAYS --repo "$OWNER/$REPO" --jq '.value')
+          s_dash=$(gh variable get CODEX_DASHBOARD_STALE_DAYS --repo "$OWNER/$REPO" --jq '.value')
+          e_dash=$(gh variable get CODEX_DASHBOARD_ESCALATION_DAYS --repo "$OWNER/$REPO" --jq '.value')
 
-          MAIN_STALE=$(getvar CODEX_MAIN_STALE_DAYS)
-          MAIN_ESC=$(getvar CODEX_MAIN_ESCALATION_DAYS)
-          DASH_STALE=$(getvar CODEX_DASHBOARD_STALE_DAYS)
-          DASH_ESC=$(getvar CODEX_DASHBOARD_ESCALATION_DAYS)
+          issues=$(gh api "/repos/$OWNER/$REPO/issues" \
+            -f labels="codex" \
+            -f state="open" \
+            -f per_page=100)
 
-          echo "Main thresholds: stale=$MAIN_STALE, escalate=$MAIN_ESC"
-          echo "Dashboard thresholds: stale=$DASH_STALE, escalate=$DASH_ESC"
+          declare -a escalated=()
 
-          echo "Fetching Codex issues…"
+          count=$(echo "$issues" | jq 'length')
+          for i in $(seq 0 $((count - 1))); do
+            number=$(echo "$issues" | jq -r ".[$i].number")
+            labels=$(echo "$issues" | jq -r ".[$i].labels[].name")
+            updated_at=$(echo "$issues" | jq -r ".[$i].updated_at")
+            updated_sec=$(date -d "$updated_at" +%s)
+            now_sec=$(date -u +%s)
+            age_days=$(( (now_sec - updated_sec) / 86400 ))
 
-          issues_json="$(
-            gh api \
-              "/repos/$OWNER/$REPO/issues?state=open&labels=codex&per_page=100" \
-              --jq '.[]'
-          )"
+            track=""
+            stale_threshold=9999
+            esc_threshold=9999
 
-          if [ -z "$issues_json" ]; then
-            echo "No codex issues found."
-            exit 0
-          fi
-
-          echo "$issues_json" | jq -c '.' | while read -r issue; do
-            NUMBER=$(echo "$issue" | jq -r '.number')
-            TITLE=$(echo "$issue" | jq -r '.title')
-            CREATED=$(echo "$issue" | jq -r '.created_at')
-
-            echo ""
-            echo "→ Processing #$NUMBER: $TITLE"
-
-            age_days=$(( ( $(date -u +%s) - $(date -u -d "$CREATED" +%s) ) / 86400 ))
-
-            if echo "$TITLE" | grep -iq "dashboard"; then
-              STALE="$DASH_STALE"
-              ESC="$DASH_ESC"
+            if echo "$labels" | grep -q "codex-trackmain"; then
+              track="main"
+              stale_threshold=$s_main
+              esc_threshold=$e_main
+            elif echo "$labels" | grep -q "codex-trackdashboard"; then
+              track="dashboard"
+              stale_threshold=$s_dash
+              esc_threshold=$e_dash
             else
-              STALE="$MAIN_STALE"
-              ESC="$MAIN_ESC"
+              continue
             fi
 
-            if [ "$age_days" -ge "$ESC" ]; then
-              echo "  Escalation threshold reached."
-              gh issue edit "$NUMBER" \
-                --add-label needs-escalation \
-                --remove-label needs-attention || true
-
-            elif [ "$age_days" -ge "$STALE" ]; then
-              echo "  Stale threshold reached."
-              gh issue edit "$NUMBER" \
-                --add-label needs-attention || true
-
-            else
-              echo "  No action needed."
+            if (( age_days >= esc_threshold )); then
+              gh api --method PATCH "/repos/$OWNER/$REPO/issues/$number" \
+                -f labels='["codex","needs-escalation"]'
+              escalated+=("$number")
+            elif (( age_days >= stale_threshold )); then
+              gh api --method PATCH "/repos/$OWNER/$REPO/issues/$number" \
+                -f labels='["codex","needs-attention"]'
             fi
-
           done
 
-          echo "Supervisor run complete."
+          echo "escalated=$(printf '%s\n' "${escalated[@]:-}" | jq -R . | jq -s .)" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Write Telemetry (Always-On)
+        if: always()
+        working-directory: gh-pages
+        run: |
+          mkdir -p telemetry
+          ts="$(date -u +"%Y%m%dT%H%M%SZ")"
+          outfile="telemetry/supervisor-$ts.json"
+
+          {
+            printf '{\n'
+            printf '  "component": "supervisor",\n'
+            printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            printf '  "escalated": %s,\n' '${{ steps.sup.outputs.escalated }}'
+            printf '  "repository": "%s"\n' "$GITHUB_REPOSITORY"
+            printf '}\n'
+          } > "$outfile"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add telemetry/*.json
+          git commit -m "Supervisor telemetry update" || echo "No changes"
+          git push origin gh-pages

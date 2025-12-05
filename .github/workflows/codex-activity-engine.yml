@@ -1,115 +1,67 @@
 ---
-name: "Codex Activity Engine (v7)"
+name: "Codex Activity Engine (v4)"
 
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "45 */4 * * *"  # runs after supervisor + sync
+    - cron: "45 */4 * * *"
   workflow_dispatch: {}
 
 permissions:
   contents: write
+  issues: read
+
+env:
+  GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+  CODEX_COMPONENT: activity
 
 jobs:
   activity:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout main
-        uses: actions/checkout@v4
-        with:
-          path: repo
-
       - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           path: gh-pages
 
-      - name: Configure token
-        env:
-          GH_CI_PAT: ${{ secrets.GH_CI_PAT }}
-        run: |
-          set -euo pipefail
-
-          unset GH_TOKEN || true
-
-          if [ -z "${GH_CI_PAT:-}" ]; then
-            echo "ERROR: GH_CI_PAT secret missing."
-            exit 1
-          fi
-
-          echo "$GH_CI_PAT" | gh auth login --with-token
-          echo "Authenticated via GH_CI_PAT."
-
-      - name: Run Activity Engine
+      - name: Pull activity
+        id: act
         working-directory: repo
-        env:
-          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
         run: |
           set -euo pipefail
 
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
-          echo "Running Codex Activity Engine (v7) for $OWNER/$REPO"
+          events=$(gh api "/repos/$OWNER/$REPO/issues/events" \
+            -f per_page=100)
 
-          # Fetch codex issues (open only)
-          issues="$(
-            gh api \
-              "/repos/$OWNER/$REPO/issues?state=open&labels=codex&per_page=100" \
-              --jq '.[]'
-          )"
+          summary=$(echo "$events" | jq '[.[] | {event, issue: .issue.number, created_at}]')
 
-          if [ -z "$issues" ]; then
-            echo "No codex issues found—nothing to process."
-            exit 0
-          fi
+          echo "events=$summary" >> "$GITHUB_OUTPUT"
 
-          # Prepare gh-pages storage
-          mkdir -p ../gh-pages/activity
-
-          timestamp="$(date -u +"%Y%m%dT%H%M%SZ")"
-          outfile="../gh-pages/activity/activity-$timestamp.json"
-
-          echo "Writing activity snapshot → $outfile"
+      - name: Write Telemetry (Always-On)
+        if: always()
+        working-directory: gh-pages
+        run: |
+          mkdir -p telemetry
+          ts="$(date -u +"%Y%m%dT%H%M%SZ")"
+          outfile="telemetry/activity-$ts.json"
 
           {
-            echo '['
-
-            first=true
-            echo "$issues" | jq -c '.' | while read -r issue; do
-              if [ "$first" = true ]; then
-                first=false
-              else
-                echo ','
-              fi
-              echo "$issue"
-            done
-
-            echo ']'
+            printf '{\n'
+            printf '  "component": "activity",\n'
+            printf '  "timestamp": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            printf '  "events": %s,\n' '${{ steps.act.outputs.events }}'
+            printf '  "repository": "%s"\n' "$GITHUB_REPOSITORY"
+            printf '}\n'
           } > "$outfile"
 
-          echo "Activity Engine wrote snapshot successfully."
-
-      - name: Commit Activity Snapshot
-        working-directory: gh-pages
-        env:
-          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-        run: |
-          set -euo pipefail
-
-          git config user.name "github-actions[bot]"
+          git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add activity/*.json
-
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
-
-          git commit -m "Codex Activity Engine snapshot"
+          git add telemetry/*.json
+          git commit -m "Activity telemetry update" || echo "No changes"
           git push origin gh-pages
-
-          echo "Activity snapshot committed and pushed."

@@ -4,11 +4,15 @@ name: "Codex Telemetry Merge (v7)"
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "30 */4 * * *"  # run after supervisor + sync + activity
+    - cron: "30 */4 * * *"
   workflow_dispatch: {}
 
 permissions:
   contents: write
+
+env:
+  GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+  CODEX_COMPONENT: merge
 
 jobs:
   merge:
@@ -21,19 +25,7 @@ jobs:
           ref: gh-pages
           path: gh-pages
 
-      - name: Checkout main
-        uses: actions/checkout@v4
-        with:
-          path: repo
-
-      - name: Enable GitHub CLI Auth
-        env:
-          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
-        run: |
-          set -e
-          echo "Authenticated with GH_CI_PAT"
-
-      - name: Merge telemetry files
+      - name: Merge telemetry
         working-directory: gh-pages
         run: |
           set -euo pipefail
@@ -41,43 +33,22 @@ jobs:
           mkdir -p telemetry
           mkdir -p dashboard
 
-          files=(telemetry/*.json)
-
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "No telemetry files found."
-            exit 0
-          fi
-
-          echo "Merging ${#files[@]} telemetry files..."
-
           merged="dashboard/dashboard.json"
 
-          jq -s '
-            {
-              generated_at: (now | todate),
-              count: length,
-              items: .
-            }
-          ' telemetry/*.json > "$merged"
+          files=(telemetry/*.json)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No telemetry to merge."
+            echo "[]" > "$merged"
+          else
+            jq -s '.' telemetry/*.json > "$merged"
+          fi
 
-          echo "Wrote merged telemetry to $merged"
-
-      - name: Commit and push merged dashboard
+      - name: Commit merged dashboard
         working-directory: gh-pages
-        env:
-          GH_TOKEN: ${{ secrets.GH_CI_PAT }}
         run: |
-          set -e
-
-          git config user.name "github-actions[bot]"
+          git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git add dashboard/dashboard.json
-
-          if git diff --cached --quiet; then
-            echo "No dashboard updates to commit."
-            exit 0
-          fi
-
-          git commit -m "Codex Telemetry Merge: Updated dashboard"
+          git commit -m "Telemetry merged" || echo "No changes"
           git push origin gh-pages
