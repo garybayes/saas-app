@@ -1,170 +1,77 @@
 ---
-name: "Codex Activity Engine (v7.5)"
+name: "Codex Activity Engine (v7.3)"
 
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "45 */4 * * *"
+    - cron: "0 */2 * * *"  # every 2 hours
   workflow_dispatch: {}
 
 permissions:
   contents: write
-  issues: write
 
 env:
   GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
 jobs:
-  activity_engine:
+  activity:
     runs-on: ubuntu-latest
 
     steps:
-      # ------------------------------------------------------------
-      # 1. Checkout gh-pages WITH GIT (critical for commits)
-      # ------------------------------------------------------------
-      - name: Checkout gh-pages
+      - name: Checkout gh-pages branch
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           path: gh-pages
-          fetch-depth: 0
-          persist-credentials: false
 
-      # ------------------------------------------------------------
-      # 2. Checkout repository (source code)
-      # ------------------------------------------------------------
-      - name: Checkout repository
+      - name: Checkout main repository
         uses: actions/checkout@v4
         with:
           path: repo
 
-      # ------------------------------------------------------------
-      # 3. Prepare telemetry directory (self-healing)
-      # ------------------------------------------------------------
-      - name: Prepare telemetry directory
+      - name: Ensure telemetry directory exists
         run: |
-          mkdir -p gh-pages/telemetry/activity
+          mkdir -p gh-pages/telemetry
 
-      # ------------------------------------------------------------
-      # 4. Load thresholds from repo variables
-      # ------------------------------------------------------------
-      - name: Load configuration
-        id: config
+      - name: Collect recent activity
+        id: collect
         run: |
           set -euo pipefail
-
-          MAIN_STALE="${CODEX_MAIN_STALE_DAYS:-}"
-          MAIN_ESC="${CODEX_MAIN_ESCALATION_DAYS:-}"
-          DASH_STALE="${CODEX_DASHBOARD_STALE_DAYS:-}"
-          DASH_ESC="${CODEX_DASHBOARD_ESCALATION_DAYS:-}"
-
-          echo "main_stale=$MAIN_STALE" >> "$GITHUB_OUTPUT"
-          echo "main_esc=$MAIN_ESC"     >> "$GITHUB_OUTPUT"
-          echo "dash_stale=$DASH_STALE" >> "$GITHUB_OUTPUT"
-          echo "dash_esc=$DASH_ESC"     >> "$GITHUB_OUTPUT"
-
-      # ------------------------------------------------------------
-      # 5. Fetch issues labeled "codex" (stable API; no search)
-      # ------------------------------------------------------------
-      - name: Fetch codex issues
-        id: issues
-        run: |
-          set -euo pipefail
-
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
-          echo "Fetching issues for activity classification…"
+          echo "Fetching issue events…"
+          gh api "/repos/$OWNER/$REPO/issues?state=all&per_page=100" > issues.json
 
-          ISSUES_JSON="$(gh api \
-            "/repos/$OWNER/$REPO/issues?labels=codex&state=all&per_page=100")"
+          echo "Fetching pull request events…"
+          gh api "/repos/$OWNER/$REPO/pulls?state=all&per_page=100" > prs.json
 
-          echo "$ISSUES_JSON" > issues.json
-          echo "Fetched $(jq length issues.json) issues"
+          TS="$(date -u +"%Y%m%dT%H%M%SZ")"
+          OUT="gh-pages/telemetry/activity-engine-${TS}.json"
 
-          echo "issues_json_path=issues.json" >> "$GITHUB_OUTPUT"
+          echo "Writing activity telemetry → $OUT"
 
-      # ------------------------------------------------------------
-      # 6. Process issues: stale, escalation, attention logic
-      # ------------------------------------------------------------
-      - name: Process activity state
-        run: |
-          set -euo pipefail
+          jq -n \
+            --arg ts "$TS" \
+            --arg repo "$OWNER/$REPO" \
+            --slurpfile issues issues.json \
+            --slurpfile prs prs.json \
+            '{
+              component: "activity-engine",
+              timestamp: $ts,
+              repository: $repo,
+              issues: $issues[0],
+              pull_requests: $prs[0]
+            }' > "$OUT"
 
-          MAIN_STALE="${{ steps.config.outputs.main_stale }}"
-          MAIN_ESC="${{ steps.config.outputs.main_esc }}"
-          DASH_STALE="${{ steps.config.outputs.dash_stale }}"
-          DASH_ESC="${{ steps.config.outputs.dash_esc }}"
+          echo "outfile=$OUT" >> "$GITHUB_OUTPUT"
 
-          NOW=$(date -u +%s)
-
-          while IFS= read -r issue; do
-            NUM=$(echo "$issue" | jq -r '.number')
-            TITLE=$(echo "$issue" | jq -r '.title')
-            UPDATED=$(echo "$issue" | jq -r '.updated_at')
-
-            TRACK_MAIN=$(echo "$issue" | jq -e '[.labels[].name] | index("codex-trackmain")' >/dev/null && echo 1 || echo 0)
-            TRACK_DASH=$(echo "$issue" | jq -e '[.labels[].name] | index("codex-trackdashboard")' >/dev/null && echo 1 || echo 0)
-
-            UPDATED_TS=$(date -d "$UPDATED" +%s)
-            AGE=$(( (NOW - UPDATED_TS) / 86400 ))
-
-            echo ""
-            echo "#$NUM \"$TITLE\" last updated $AGE days ago"
-
-            if [ "$TRACK_MAIN" = "1" ]; then
-              STALE="$MAIN_STALE"
-              ESC="$MAIN_ESC"
-            elif [ "$TRACK_DASH" = "1" ]; then
-              STALE="$DASH_STALE"
-              ESC="$DASH_ESC"
-            else
-              echo " → No recognized track label; skipping"
-              continue
-            fi
-
-            # Mark stale
-            if [ "$AGE" -ge "$STALE" ]; then
-              echo " → Adding needs-attention"
-              gh api \
-                --method POST \
-                "/repos/${GITHUB_REPOSITORY}/issues/$NUM/labels" \
-                -f labels='["needs-attention"]'
-            fi
-
-            # Mark escalation
-            if [ "$AGE" -ge "$ESC" ]; then
-              echo " → Adding needs-escalation"
-              gh api \
-                --method POST \
-                "/repos/${GITHUB_REPOSITORY}/issues/$NUM/labels" \
-                -f labels='["needs-escalation"]'
-            fi
-
-          done < <(jq -c '.[]' issues.json)
-
-      # ------------------------------------------------------------
-      # 7. Commit telemetry snapshot
-      # ------------------------------------------------------------
-      - name: Commit activity telemetry
+      - name: Commit & push activity telemetry
         run: |
           set -euo pipefail
           cd gh-pages
-
-          SNAP="telemetry/activity/activity-$(date -u +"%Y%m%dT%H%M%SZ").json"
-
-          printf '{\n' > "$SNAP"
-          printf '  "component": "activity-engine",\n' >> "$SNAP"
-          printf '  "timestamp": "%s"\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$SNAP"
-          printf '}\n' >> "$SNAP"
-
+          git add telemetry/*.json
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add "$SNAP"
-          git commit -m "Codex Activity Engine telemetry update" || echo "No changes"
-
-          # 🔥 FIX: authenticate push using GH_TOKEN (GH_CI_PAT)
-          git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
-
+          git commit -m "Activity Engine telemetry update" || echo "No changes"
           git push origin gh-pages
