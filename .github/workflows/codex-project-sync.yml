@@ -1,5 +1,5 @@
 ---
-name: "Codex Project Sync (v9.11.1)"
+name: "Codex Project Sync (v9.11.2)"
 
 # yamllint disable-line rule:truthy
 on:
@@ -14,89 +14,140 @@ env:
   GH_TOKEN: ${{ secrets.GH_CI_PAT }}
 
 jobs:
-  sync:
+  project_sync:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout gh-pages (full clone)
+      # Checkout gh-pages for telemetry writing
+      - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           path: gh-pages
-          fetch-depth: 0
-          persist-credentials: true
 
-      - name: Checkout repository (isolated)
+      # Checkout main repo (read-only)
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           path: repo
-          fetch-depth: 1
-          persist-credentials: false
 
+      # Ensure telemetry directory exists
+      - name: Prepare telemetry directory
+        run: mkdir -p gh-pages/telemetry
+
+      # Load milestone config from repo variables
       - name: Load configuration
         id: config
         run: |
           set -euo pipefail
+
           MAIN_MS="${{ vars.CODEX_MAIN_MILESTONE }}"
           DASH_MS="${{ vars.CODEX_DASHBOARD_MILESTONE }}"
           SELFTEST_MS="${{ vars.CODEX_SELFTEST_MILESTONE }}"
 
-          echo "main=$MAIN_MS" >> "$GITHUB_OUTPUT"
-          echo "dash=$DASH_MS" >> "$GITHUB_OUTPUT"
-          echo "selftest=$SELFTEST_MS" >> "$GITHUB_OUTPUT"
+          echo "MAIN_MS=$MAIN_MS"
+          echo "DASH_MS=$DASH_MS"
+          echo "SELFTEST_MS=$SELFTEST_MS"
 
-      - name: Validate configuration
-        run: |
-          set -euo pipefail
-
-          if [ -z "${{ steps.config.outputs.main }}" ] ||
-             [ -z "${{ steps.config.outputs.dash }}" ] ||
-             [ -z "${{ steps.config.outputs.selftest }}" ]; then
-
-            echo "ERROR: One or more Codex milestone variables missing."
+          if [[ -z "$MAIN_MS" || -z "$DASH_MS" || -z "$SELFTEST_MS" ]]; then
+            echo "ERROR: Missing milestone variables."
             exit 1
           fi
 
+          echo "main_ms=$MAIN_MS" >> "$GITHUB_OUTPUT"
+          echo "dash_ms=$DASH_MS" >> "$GITHUB_OUTPUT"
+          echo "selftest_ms=$SELFTEST_MS" >> "$GITHUB_OUTPUT"
+
+      # Fetch only codex issues (search removed)
       - name: Fetch Codex issues
         id: fetch
         run: |
           set -euo pipefail
 
-          ISSUES=$(gh issue list \
-            --label "codex" \
-            --state all \
-            --json number,title,labels,body,milestone)
+          OWNER="${GITHUB_REPOSITORY%/*}"
+          REPO="${GITHUB_REPOSITORY#*/}"
 
-          echo "$ISSUES" > repo/issues.json
-          echo "issues_path=repo/issues.json" >> "$GITHUB_OUTPUT"
+          echo "Fetching codex-labeled issues…"
 
-      - name: Process issues
+          gh api \
+            "/repos/$OWNER/$REPO/issues?state=all&labels=codex&per_page=100" \
+            --jq '.[] | {number, title, milestone: (.milestone.number // null), labels: [.labels[].name]}' \
+            > codex.json
+
+          echo "Fetched:"
+          jq -r '.number, .title' codex.json | nl
+
+      # Apply milestone rules
+      - name: Apply routing rules
+        id: apply
         run: |
           set -euo pipefail
 
-          MAIN_MS="${{ steps.config.outputs.main }}"
-          DASH_MS="${{ steps.config.outputs.dash }}"
-          SELFTEST_MS="${{ steps.config.outputs.selftest }}"
-          FILE="${{ steps.fetch.outputs.issues_path }}"
+          MAIN_MS="${{ steps.config.outputs.main_ms }}"
+          DASH_MS="${{ steps.config.outputs.dash_ms }}"
+          SELFTEST_MS="${{ steps.config.outputs.selftest_ms }}"
 
-          jq -c '.[]' "$FILE" | while read -r issue; do
+          OWNER="${GITHUB_REPOSITORY%/*}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+
+          echo "Processing Codex issues…"
+
+          while read -r issue; do
             NUM=$(echo "$issue" | jq -r '.number')
             TITLE=$(echo "$issue" | jq -r '.title')
-            LABELS=$(echo "$issue" | jq -r '.labels[].name')
+            CURRENT_MS=$(echo "$issue" | jq -r '.milestone')
+            HAS_SELFTEST=$(echo "$issue" | jq -r '.labels | index("codex-selftest")')
 
             echo "#$NUM: $TITLE"
 
-            # Self-test issues
-            if echo "$LABELS" | grep -q "codex-selftest"; then
-              echo " → Self-test issue"
-              if [ -z "$SELFTEST_MS" ]; then
-                echo "   ❌ EMPTY milestone — refusing to set."
-                continue
-              fi
-              gh issue edit "$NUM" --milestone "$SELFTEST_MS"
+            # Rule 1: Self-test → SELFTEST_MS
+            if [[ "$HAS_SELFTEST" != "null" ]]; then
+              echo " → Self-test issue → milestone $SELFTEST_MS"
+              gh api -X PATCH "/repos/$OWNER/$REPO/issues/$NUM" -f milestone="$SELFTEST_MS"
               continue
             fi
 
-            # Main track
-            if echo "$LABELS" | grep -q "codex-trackmain"; then
-              echo " → Main
+            # Rule 2: Codex-trackmain → MAIN_MS
+            if echo "$issue" | jq -e '.labels | index("codex-trackmain")' >/dev/null; then
+              echo " → Main track → milestone $MAIN_MS"
+              gh api -X PATCH "/repos/$OWNER/$REPO/issues/$NUM" -f milestone="$MAIN_MS"
+              continue
+            fi
+
+            # Rule 3: Codex-trackdashboard → DASH_MS
+            if echo "$issue" | jq -e '.labels | index("codex-trackdashboard")' >/dev/null; then
+              echo " → Dashboard track → milestone $DASH_MS"
+              gh api -X PATCH "/repos/$OWNER/$REPO/issues/$NUM" -f milestone="$DASH_MS"
+              continue
+            fi
+
+            # Rule 4: Codex-only → no milestone + attention needed
+            echo " → Codex-only (no track). Leaving without milestone."
+            gh api -X PATCH "/repos/$OWNER/$REPO/issues/$NUM" -f milestone=""
+
+          done < <(jq -c '.[]' codex.json)
+
+      # Write telemetry file
+      - name: Write telemetry file
+        run: |
+          set -euo pipefail
+          TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          FILE="gh-pages/telemetry/project-sync-${TS}.json"
+
+          jq -n \
+            --arg timestamp "$TS" \
+            --arg repo "$GITHUB_REPOSITORY" \
+            '{component:"project-sync", timestamp:$timestamp, repository:$repo}' \
+            > "$FILE"
+
+          echo "Telemetry written to: $FILE"
+
+      # Commit telemetry update
+      - name: Commit telemetry
+        working-directory: gh-pages
+        run: |
+          set -euo pipefail
+
+          git add telemetry/*.json
+          git commit -m "Project Sync telemetry update" || true
+          git push origin gh-pages
