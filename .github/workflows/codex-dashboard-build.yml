@@ -1,5 +1,5 @@
 ---
-name: Codex Dashboard Build (v1.0)
+name: Codex Dashboard Build (v1.1)
 
 # yamllint disable-line rule:truthy
 on:
@@ -25,55 +25,49 @@ jobs:
           path: gh-pages
 
       - name: Ensure dashboard directory exists
-        run: |
-          mkdir -p gh-pages/dashboard
+        run: mkdir -p gh-pages/dashboard
 
-      - name: Load current dashboard data
-        id: load
+      - name: Load or initialize dashboard source
         run: |
           set -euo pipefail
-
           DASH="gh-pages/dashboard/dashboard.json"
 
           if [ ! -f "$DASH" ]; then
-            echo "No dashboard.json found → creating empty structure"
-            printf '{ "component": "dashboard", "generated_at": "%s", "issues": [] }\n' \
-              "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-              > "$DASH"
+            echo "Creating empty dashboard array..."
+            printf '[]' > "$DASH"
           fi
 
-          echo "Loaded dashboard.json"
-          cat "$DASH"
+          echo "Loaded dashboard.json:"
+          head -20 "$DASH" || true
 
-      - name: Rebuild dashboard JSON
-        id: build
+      - name: Build dashboard wrapper
         run: |
           set -euo pipefail
 
           DASH="gh-pages/dashboard/dashboard.json"
-
-          # Here you define how the dashboard is constructed.
-          # This is the SIMPLEST version: it preserves the structure and stamps the timestamp.
-
           TMP="gh-pages/dashboard/dashboard.new.json"
 
           jq --arg ts "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" '
-            .generated_at = $ts
+            {
+              component: "dashboard",
+              generated_at: $ts,
+              items: .
+            }
           ' "$DASH" > "$TMP"
 
           mv "$TMP" "$DASH"
 
           echo "Updated dashboard.json:"
-          cat "$DASH"
+          head -40 "$DASH" || true
 
-      - name: Commit and push changes
+      - name: Commit and push (only if changed)
         run: |
           cd gh-pages
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add dashboard/dashboard.json || true
+          git add dashboard/dashboard.json
 
           if git diff --cached --quiet; then
             echo "No dashboard changes to commit."
