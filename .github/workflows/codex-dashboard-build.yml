@@ -1,0 +1,83 @@
+---
+name: Codex Dashboard Build (v1.0)
+
+# yamllint disable-line rule:truthy
+on:
+  schedule:
+    - cron: "30 */6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+env:
+  GH_TOKEN: ${{ secrets.GH_CI_PAT }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Ensure dashboard directory exists
+        run: |
+          mkdir -p gh-pages/dashboard
+
+      - name: Load current dashboard data
+        id: load
+        run: |
+          set -euo pipefail
+
+          DASH="gh-pages/dashboard/dashboard.json"
+
+          if [ ! -f "$DASH" ]; then
+            echo "No dashboard.json found → creating empty structure"
+            printf '{ "component": "dashboard", "generated_at": "%s", "issues": [] }\n' \
+              "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+              > "$DASH"
+          fi
+
+          echo "Loaded dashboard.json"
+          cat "$DASH"
+
+      - name: Rebuild dashboard JSON
+        id: build
+        run: |
+          set -euo pipefail
+
+          DASH="gh-pages/dashboard/dashboard.json"
+
+          # Here you define how the dashboard is constructed.
+          # This is the SIMPLEST version: it preserves the structure and stamps the timestamp.
+
+          TMP="gh-pages/dashboard/dashboard.new.json"
+
+          jq --arg ts "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" '
+            .generated_at = $ts
+          ' "$DASH" > "$TMP"
+
+          mv "$TMP" "$DASH"
+
+          echo "Updated dashboard.json:"
+          cat "$DASH"
+
+      - name: Commit and push changes
+        run: |
+          cd gh-pages
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add dashboard/dashboard.json || true
+
+          if git diff --cached --quiet; then
+            echo "No dashboard changes to commit."
+          else
+            git commit -m "Dashboard rebuild"
+            git push origin gh-pages
+          fi
