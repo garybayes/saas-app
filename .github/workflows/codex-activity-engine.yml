@@ -1,10 +1,10 @@
 ---
-name: "Codex Activity Engine (v7.3)"
+name: "Codex Activity Engine (v7.4)"
 
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "0 */2 * * *"  # every 2 hours
+    - cron: "0 */2 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -18,55 +18,74 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout gh-pages branch
+      - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           path: gh-pages
 
-      - name: Checkout main repository
+      - name: Checkout repo
         uses: actions/checkout@v4
         with:
           path: repo
 
       - name: Ensure telemetry directory exists
-        run: |
-          mkdir -p gh-pages/telemetry
+        run: mkdir -p gh-pages/telemetry
 
-      - name: Collect recent activity
+      - name: Fetch and normalize activity data
         id: collect
         run: |
           set -euo pipefail
           OWNER="${GITHUB_REPOSITORY%/*}"
           REPO="${GITHUB_REPOSITORY#*/}"
 
-          echo "Fetching issue events…"
+          echo "Fetching issues..."
           gh api "/repos/$OWNER/$REPO/issues?state=all&per_page=100" > issues.json
 
-          echo "Fetching pull request events…"
+          echo "Fetching pull requests..."
           gh api "/repos/$OWNER/$REPO/pulls?state=all&per_page=100" > prs.json
 
           TS="$(date -u +"%Y%m%dT%H%M%SZ")"
           OUT="gh-pages/telemetry/activity-engine-${TS}.json"
 
-          echo "Writing activity telemetry → $OUT"
+          echo "Normalizing into minimal telemetry format..."
 
           jq -n \
             --arg ts "$TS" \
             --arg repo "$OWNER/$REPO" \
-            --slurpfile issues issues.json \
-            --slurpfile prs prs.json \
-            '{
+            --slurpfile issues_raw issues.json \
+            --slurpfile prs_raw prs.json \
+            '
+            {
               component: "activity-engine",
               timestamp: $ts,
               repository: $repo,
-              issues: $issues[0],
-              pull_requests: $prs[0]
-            }' > "$OUT"
+              issues: (
+                $issues_raw[0] | map({
+                  number,
+                  title,
+                  state,
+                  labels: (.labels | map(.name)),
+                  milestone: (if .milestone then .milestone.title else null end),
+                  created_at,
+                  updated_at
+                })
+              ),
+              pull_requests: (
+                $prs_raw[0] | map({
+                  number,
+                  title,
+                  state,
+                  created_at,
+                  updated_at
+                })
+              )
+            }
+            ' > "$OUT"
 
           echo "outfile=$OUT" >> "$GITHUB_OUTPUT"
 
-      - name: Commit & push activity telemetry
+      - name: Commit & push telemetry
         run: |
           set -euo pipefail
           cd gh-pages
