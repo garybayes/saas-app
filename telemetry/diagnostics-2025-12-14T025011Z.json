@@ -1,0 +1,14 @@
+{
+  "component": "diagnostics",
+  "timestamp": "2025-12-14T02:50:11Z",
+  "repository": "garybayes/saas-app",
+  "milestones": {
+    "main": "Sprint 4 Stabilization",
+    "dashboard": "Dashboard Validation",
+    "selftest": "Codex Internal"
+  },
+  "missing_labels": [
+  ""
+],
+  "config_error": "false"
+}
