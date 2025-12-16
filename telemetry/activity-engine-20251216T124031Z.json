@@ -1,0 +1,1266 @@
+{
+  "component": "activity-engine",
+  "timestamp": "20251216T124031Z",
+  "repository": "garybayes/saas-app",
+  "issues": [
+    {
+      "number": 125,
+      "title": "Codex Self-Test: 2025-12-04 03:24 UTC",
+      "state": "open",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-12-04T03:24:27Z",
+      "updated_at": "2025-12-06T01:35:12Z"
+    },
+    {
+      "number": 124,
+      "title": "Codex Self-Test: 2025-12-04 02:02 UTC",
+      "state": "open",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-12-04T02:02:08Z",
+      "updated_at": "2025-12-06T01:35:13Z"
+    },
+    {
+      "number": 123,
+      "title": "Codex Self-Test: 2025-12-04 01:32 UTC",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-attention",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-12-04T01:32:31Z",
+      "updated_at": "2025-12-06T01:35:14Z"
+    },
+    {
+      "number": 122,
+      "title": "Codex Self-Test: 2025-12-04 01:13 UTC",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-attention",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-12-04T01:13:41Z",
+      "updated_at": "2025-12-06T01:35:16Z"
+    },
+    {
+      "number": 121,
+      "title": "Codex Self-Test: 2025-12-04 00:27 UTC",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-attention",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-12-04T00:27:53Z",
+      "updated_at": "2025-12-06T01:35:17Z"
+    },
+    {
+      "number": 120,
+      "title": "Codex Self-Test: 2025-12-03 23:04 UTC",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-attention",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-12-03T23:04:44Z",
+      "updated_at": "2025-12-06T01:35:18Z"
+    },
+    {
+      "number": 119,
+      "title": "Codex Self-Test: 2025-12-03 20:11 UTC",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-attention",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-12-03T20:11:51Z",
+      "updated_at": "2025-12-06T01:35:19Z"
+    },
+    {
+      "number": 118,
+      "title": "Codex Self-Test: 2025-12-03 19:59 UTC",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-attention",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-12-03T19:59:48Z",
+      "updated_at": "2025-12-06T01:35:20Z"
+    },
+    {
+      "number": 117,
+      "title": "Codex Self-Test 1764560837",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-12-01T03:47:17Z",
+      "updated_at": "2025-12-06T01:35:22Z"
+    },
+    {
+      "number": 116,
+      "title": "Codex Self-Test 1764559127",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-12-01T03:18:47Z",
+      "updated_at": "2025-12-06T01:35:23Z"
+    },
+    {
+      "number": 115,
+      "title": "Codex Self-Test 1764549371",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-12-01T00:36:14Z",
+      "updated_at": "2025-12-06T01:35:24Z"
+    },
+    {
+      "number": 114,
+      "title": "Codex Self-Test 1764548567",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-12-01T00:22:49Z",
+      "updated_at": "2025-12-06T01:35:25Z"
+    },
+    {
+      "number": 111,
+      "title": "Codex Self-Test 1764546874",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-30T23:54:35Z",
+      "updated_at": "2025-12-06T01:35:26Z"
+    },
+    {
+      "number": 110,
+      "title": "Codex Self-Test 1764546039",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-30T23:40:40Z",
+      "updated_at": "2025-12-06T01:35:28Z"
+    },
+    {
+      "number": 109,
+      "title": "Codex Self-Test 1764545316",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-30T23:28:38Z",
+      "updated_at": "2025-12-06T01:35:29Z"
+    },
+    {
+      "number": 108,
+      "title": "Codex Self-Test 1764545035",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-30T23:23:55Z",
+      "updated_at": "2025-12-06T01:35:30Z"
+    },
+    {
+      "number": 107,
+      "title": "Codex Self-Test 1764544534",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-30T23:15:35Z",
+      "updated_at": "2025-12-06T01:35:31Z"
+    },
+    {
+      "number": 106,
+      "title": "Codex Self-Test 1764544094",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-30T23:08:22Z",
+      "updated_at": "2025-12-06T01:35:32Z"
+    },
+    {
+      "number": 105,
+      "title": "Codex Self-Test 1764543737",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-30T23:02:18Z",
+      "updated_at": "2025-12-06T01:35:33Z"
+    },
+    {
+      "number": 104,
+      "title": "Codex Self-Test 1764543396",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-30T22:56:40Z",
+      "updated_at": "2025-12-06T01:35:35Z"
+    },
+    {
+      "number": 103,
+      "title": "Codex Self-Test 1764542432",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-30T22:40:32Z",
+      "updated_at": "2025-12-06T01:35:36Z"
+    },
+    {
+      "number": 102,
+      "title": "Codex Self-Test 1764542248",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-30T22:37:28Z",
+      "updated_at": "2025-12-06T01:35:37Z"
+    },
+    {
+      "number": 101,
+      "title": "Codex Self-Test Issue",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-30T18:17:01Z",
+      "updated_at": "2025-12-06T01:35:38Z"
+    },
+    {
+      "number": 100,
+      "title": "Codex Self-Test Issue",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-30T18:15:40Z",
+      "updated_at": "2025-12-06T01:35:39Z"
+    },
+    {
+      "number": 99,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-30T12:34:25Z",
+      "updated_at": "2025-12-06T01:35:40Z"
+    },
+    {
+      "number": 98,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-30T06:27:20Z",
+      "updated_at": "2025-12-06T01:35:41Z"
+    },
+    {
+      "number": 97,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-30T04:07:26Z",
+      "updated_at": "2025-12-06T01:35:42Z"
+    },
+    {
+      "number": 96,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-30T03:32:45Z",
+      "updated_at": "2025-12-06T01:35:43Z"
+    },
+    {
+      "number": 95,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-30T01:40:01Z",
+      "updated_at": "2025-12-06T01:35:44Z"
+    },
+    {
+      "number": 94,
+      "title": "Dashboard: Error Heatmap (Prototype)",
+      "state": "open",
+      "labels": [
+        "codex-trackdashboard",
+        "needs-attention"
+      ],
+      "milestone": "Dashboard Validation",
+      "created_at": "2025-11-29T23:03:49Z",
+      "updated_at": "2025-12-04T01:44:23Z"
+    },
+    {
+      "number": 93,
+      "title": "Dashboard: Refresh Indicator",
+      "state": "open",
+      "labels": [
+        "codex-trackdashboard",
+        "needs-attention"
+      ],
+      "milestone": "Dashboard Validation",
+      "created_at": "2025-11-29T23:03:47Z",
+      "updated_at": "2025-12-04T01:44:24Z"
+    },
+    {
+      "number": 92,
+      "title": "Dashboard: Add Last-Updated Timestamp",
+      "state": "open",
+      "labels": [
+        "codex-trackdashboard",
+        "needs-attention"
+      ],
+      "milestone": "Dashboard Validation",
+      "created_at": "2025-11-29T23:03:44Z",
+      "updated_at": "2025-12-04T01:44:27Z"
+    },
+    {
+      "number": 91,
+      "title": "E2E: Workflow Setup Route Coverage",
+      "state": "open",
+      "labels": [
+        "codex-trackmain",
+        "needs-attention"
+      ],
+      "milestone": "Sprint 4 Stabilization",
+      "created_at": "2025-11-29T23:03:41Z",
+      "updated_at": "2025-12-04T01:43:45Z"
+    },
+    {
+      "number": 90,
+      "title": "E2E: Connections Module Coverage",
+      "state": "open",
+      "labels": [
+        "codex-trackmain",
+        "needs-attention"
+      ],
+      "milestone": "Sprint 4 Stabilization",
+      "created_at": "2025-11-29T23:03:39Z",
+      "updated_at": "2025-12-04T01:43:46Z"
+    },
+    {
+      "number": 89,
+      "title": "E2E: Dashboard Coverage",
+      "state": "open",
+      "labels": [
+        "codex-trackmain",
+        "needs-attention"
+      ],
+      "milestone": "Sprint 4 Stabilization",
+      "created_at": "2025-11-29T23:03:36Z",
+      "updated_at": "2025-12-04T01:43:48Z"
+    },
+    {
+      "number": 88,
+      "title": "E2E: Signup Flow Coverage",
+      "state": "open",
+      "labels": [
+        "codex-trackmain",
+        "needs-attention"
+      ],
+      "milestone": "Sprint 4 Stabilization",
+      "created_at": "2025-11-29T23:03:33Z",
+      "updated_at": "2025-12-04T01:43:50Z"
+    },
+    {
+      "number": 87,
+      "title": "E2E: Login Route Coverage",
+      "state": "open",
+      "labels": [
+        "codex-trackmain",
+        "needs-attention"
+      ],
+      "milestone": "Sprint 4 Stabilization",
+      "created_at": "2025-11-29T23:03:30Z",
+      "updated_at": "2025-12-04T01:43:51Z"
+    },
+    {
+      "number": 86,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-29T18:24:34Z",
+      "updated_at": "2025-12-06T01:35:45Z"
+    },
+    {
+      "number": 85,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-29T12:34:56Z",
+      "updated_at": "2025-12-06T01:35:46Z"
+    },
+    {
+      "number": 84,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-29T06:25:54Z",
+      "updated_at": "2025-12-06T01:35:47Z"
+    },
+    {
+      "number": 83,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-29T04:02:16Z",
+      "updated_at": "2025-12-06T01:35:48Z"
+    },
+    {
+      "number": 82,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-29T03:59:25Z",
+      "updated_at": "2025-12-06T01:35:50Z"
+    },
+    {
+      "number": 81,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-29T03:30:34Z",
+      "updated_at": "2025-12-06T01:35:51Z"
+    },
+    {
+      "number": 80,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-29T03:19:38Z",
+      "updated_at": "2025-12-06T01:35:52Z"
+    },
+    {
+      "number": 79,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-29T01:29:43Z",
+      "updated_at": "2025-12-06T01:35:53Z"
+    },
+    {
+      "number": 78,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-29T01:20:53Z",
+      "updated_at": "2025-12-06T01:35:54Z"
+    },
+    {
+      "number": 77,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-28T18:25:51Z",
+      "updated_at": "2025-12-06T01:35:55Z"
+    },
+    {
+      "number": 76,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-28T12:37:26Z",
+      "updated_at": "2025-12-06T01:35:56Z"
+    },
+    {
+      "number": 75,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-28T06:29:09Z",
+      "updated_at": "2025-12-06T01:35:57Z"
+    },
+    {
+      "number": 74,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-28T02:28:03Z",
+      "updated_at": "2025-12-06T01:35:59Z"
+    },
+    {
+      "number": 73,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-28T01:20:22Z",
+      "updated_at": "2025-12-06T01:36:00Z"
+    },
+    {
+      "number": 72,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-28T00:58:29Z",
+      "updated_at": "2025-12-06T01:36:01Z"
+    },
+    {
+      "number": 71,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-28T00:54:25Z",
+      "updated_at": "2025-12-06T01:36:02Z"
+    },
+    {
+      "number": 70,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-28T00:47:56Z",
+      "updated_at": "2025-12-06T01:36:04Z"
+    },
+    {
+      "number": 69,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-27T18:25:27Z",
+      "updated_at": "2025-12-06T01:36:05Z"
+    },
+    {
+      "number": 68,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-27T17:36:24Z",
+      "updated_at": "2025-12-06T01:36:06Z"
+    },
+    {
+      "number": 67,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-27T17:04:07Z",
+      "updated_at": "2025-12-06T01:36:07Z"
+    },
+    {
+      "number": 66,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-27T12:35:35Z",
+      "updated_at": "2025-12-06T01:36:08Z"
+    },
+    {
+      "number": 65,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-27T06:26:42Z",
+      "updated_at": "2025-12-06T01:36:09Z"
+    },
+    {
+      "number": 64,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-27T04:10:11Z",
+      "updated_at": "2025-12-06T01:36:11Z"
+    },
+    {
+      "number": 63,
+      "title": "Codex Self-Test Cycle",
+      "state": "closed",
+      "labels": [
+        "codex",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-27T03:08:54Z",
+      "updated_at": "2025-12-06T01:36:13Z"
+    },
+    {
+      "number": 62,
+      "title": "Codex Self-Test PR",
+      "state": "closed",
+      "labels": [],
+      "milestone": null,
+      "created_at": "2025-11-26T03:21:48Z",
+      "updated_at": "2025-11-26T03:21:52Z"
+    },
+    {
+      "number": 61,
+      "title": "Codex Self-Test Issue",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-26T03:21:44Z",
+      "updated_at": "2025-12-06T01:36:14Z"
+    },
+    {
+      "number": 60,
+      "title": "Codex Self-Test: Issue #59",
+      "state": "closed",
+      "labels": [],
+      "milestone": null,
+      "created_at": "2025-11-26T02:51:22Z",
+      "updated_at": "2025-11-26T02:51:26Z"
+    },
+    {
+      "number": 59,
+      "title": "Codex Self-Test Issue",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-26T02:51:20Z",
+      "updated_at": "2025-12-06T01:36:15Z"
+    },
+    {
+      "number": 58,
+      "title": "Codex Self-Test: Issue #57",
+      "state": "closed",
+      "labels": [],
+      "milestone": null,
+      "created_at": "2025-11-26T02:32:15Z",
+      "updated_at": "2025-11-26T02:32:18Z"
+    },
+    {
+      "number": 57,
+      "title": "Codex Self-Test Issue",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-26T02:32:13Z",
+      "updated_at": "2025-12-06T01:36:16Z"
+    },
+    {
+      "number": 56,
+      "title": "Codex Self-Test: Issue #55",
+      "state": "closed",
+      "labels": [],
+      "milestone": null,
+      "created_at": "2025-11-26T02:26:53Z",
+      "updated_at": "2025-11-26T02:26:57Z"
+    },
+    {
+      "number": 55,
+      "title": "Codex Self-Test Issue",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-26T02:26:51Z",
+      "updated_at": "2025-12-06T01:36:18Z"
+    },
+    {
+      "number": 54,
+      "title": "Codex Self-Test: Issue #53",
+      "state": "closed",
+      "labels": [],
+      "milestone": null,
+      "created_at": "2025-11-26T01:38:48Z",
+      "updated_at": "2025-11-26T01:38:51Z"
+    },
+    {
+      "number": 53,
+      "title": "Codex Self-Test Issue",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-26T01:38:46Z",
+      "updated_at": "2025-12-06T01:36:19Z"
+    },
+    {
+      "number": 52,
+      "title": "Test Codex PR",
+      "state": "closed",
+      "labels": [],
+      "milestone": null,
+      "created_at": "2025-11-26T01:00:18Z",
+      "updated_at": "2025-11-26T02:44:38Z"
+    },
+    {
+      "number": 51,
+      "title": "Dashboard V3: Historical Telemetry Timeline",
+      "state": "open",
+      "labels": [],
+      "milestone": "Dashboard V3",
+      "created_at": "2025-11-26T00:16:46Z",
+      "updated_at": "2025-12-02T19:35:54Z"
+    },
+    {
+      "number": 50,
+      "title": "Dashboard V3: Data Reliability Score",
+      "state": "open",
+      "labels": [],
+      "milestone": "Dashboard V3",
+      "created_at": "2025-11-26T00:16:44Z",
+      "updated_at": "2025-12-02T19:35:57Z"
+    },
+    {
+      "number": 49,
+      "title": "Dashboard V3: Self-Healing Fallback Routines",
+      "state": "open",
+      "labels": [],
+      "milestone": "Dashboard V3",
+      "created_at": "2025-11-26T00:16:42Z",
+      "updated_at": "2025-12-02T19:35:50Z"
+    },
+    {
+      "number": 48,
+      "title": "Dashboard V3: Codex Integrity Monitor",
+      "state": "open",
+      "labels": [],
+      "milestone": "Dashboard V3",
+      "created_at": "2025-11-26T00:16:40Z",
+      "updated_at": "2025-12-02T19:35:46Z"
+    },
+    {
+      "number": 47,
+      "title": "Dashboard V3: Telemetry Visualization Layer",
+      "state": "open",
+      "labels": [],
+      "milestone": "Dashboard V3",
+      "created_at": "2025-11-26T00:16:38Z",
+      "updated_at": "2025-12-02T19:35:40Z"
+    },
+    {
+      "number": 46,
+      "title": "Codex Self-Test: Issue #45",
+      "state": "closed",
+      "labels": [],
+      "milestone": null,
+      "created_at": "2025-11-25T23:47:52Z",
+      "updated_at": "2025-11-25T23:47:55Z"
+    },
+    {
+      "number": 45,
+      "title": "Codex Self-Test Issue",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-25T23:47:49Z",
+      "updated_at": "2025-12-06T01:36:20Z"
+    },
+    {
+      "number": 44,
+      "title": "Codex Self-Test Issue",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-25T18:31:28Z",
+      "updated_at": "2025-12-06T01:36:21Z"
+    },
+    {
+      "number": 43,
+      "title": "Codex Self-Test Issue",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-25T12:42:40Z",
+      "updated_at": "2025-12-06T01:36:22Z"
+    },
+    {
+      "number": 42,
+      "title": "Codex Self-Test Issue",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-25T06:32:49Z",
+      "updated_at": "2025-12-06T01:36:23Z"
+    },
+    {
+      "number": 41,
+      "title": "Codex Self-Test Issue",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-25T05:00:05Z",
+      "updated_at": "2025-12-06T01:36:24Z"
+    },
+    {
+      "number": 40,
+      "title": "Codex Self-Test Issue",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-25T04:52:45Z",
+      "updated_at": "2025-12-06T01:36:25Z"
+    },
+    {
+      "number": 39,
+      "title": "Codex Self-Test Issue",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-25T04:25:09Z",
+      "updated_at": "2025-12-06T01:36:26Z"
+    },
+    {
+      "number": 38,
+      "title": "Codex Self-Test Issue",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-25T04:17:33Z",
+      "updated_at": "2025-12-06T01:36:28Z"
+    },
+    {
+      "number": 37,
+      "title": "Codex Self-Test Issue",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-25T03:52:42Z",
+      "updated_at": "2025-12-06T01:36:29Z"
+    },
+    {
+      "number": 36,
+      "title": "Codex Self-Test Issue",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-25T03:49:20Z",
+      "updated_at": "2025-12-06T01:36:30Z"
+    },
+    {
+      "number": 35,
+      "title": "Codex Self-Test Issue",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-25T03:48:07Z",
+      "updated_at": "2025-12-06T01:36:31Z"
+    },
+    {
+      "number": 34,
+      "title": "Codex Self-Test Issue",
+      "state": "open",
+      "labels": [
+        "codex",
+        "needs-escalation",
+        "codex-selftest"
+      ],
+      "milestone": "Codex Internal",
+      "created_at": "2025-11-25T03:41:30Z",
+      "updated_at": "2025-12-06T01:36:32Z"
+    },
+    {
+      "number": 33,
+      "title": "Add last-updated timestamp",
+      "state": "open",
+      "labels": [],
+      "milestone": "Dashboard V2",
+      "created_at": "2025-11-24T03:56:33Z",
+      "updated_at": "2025-12-02T19:13:25Z"
+    },
+    {
+      "number": 32,
+      "title": "Compress and minify dashboard data",
+      "state": "open",
+      "labels": [],
+      "milestone": "Dashboard V2",
+      "created_at": "2025-11-24T03:56:32Z",
+      "updated_at": "2025-12-02T19:13:26Z"
+    },
+    {
+      "number": 31,
+      "title": "Enable lazy-loading of charts",
+      "state": "open",
+      "labels": [],
+      "milestone": "Dashboard V2",
+      "created_at": "2025-11-24T03:56:30Z",
+      "updated_at": "2025-12-02T19:13:28Z"
+    },
+    {
+      "number": 30,
+      "title": "Split Codex data into modular JSON files",
+      "state": "open",
+      "labels": [],
+      "milestone": "Dashboard V2",
+      "created_at": "2025-11-24T03:56:29Z",
+      "updated_at": "2025-12-02T19:13:30Z"
+    },
+    {
+      "number": 29,
+      "title": "Add PR history panel",
+      "state": "open",
+      "labels": [],
+      "milestone": "Dashboard V2",
+      "created_at": "2025-11-24T03:56:28Z",
+      "updated_at": "2025-12-02T19:13:31Z"
+    },
+    {
+      "number": 28,
+      "title": "Add branch comparison view",
+      "state": "open",
+      "labels": [],
+      "milestone": "Dashboard V2",
+      "created_at": "2025-11-24T03:56:27Z",
+      "updated_at": "2025-12-02T19:13:33Z"
+    },
+    {
+      "number": 27,
+      "title": "Add error heatmap",
+      "state": "open",
+      "labels": [],
+      "milestone": "Dashboard V2",
+      "created_at": "2025-11-24T03:56:26Z",
+      "updated_at": "2025-12-02T19:13:35Z"
+    },
+    {
+      "number": 26,
+      "title": "Add test pass/fail bar chart",
+      "state": "open",
+      "labels": [],
+      "milestone": "Dashboard V2",
+      "created_at": "2025-11-24T03:56:25Z",
+      "updated_at": "2025-12-02T19:13:36Z"
+    },
+    {
+      "number": 25,
+      "title": "Add workflow duration trend chart",
+      "state": "open",
+      "labels": [],
+      "milestone": "Dashboard V2",
+      "created_at": "2025-11-24T03:56:24Z",
+      "updated_at": "2025-12-02T19:13:38Z"
+    },
+    {
+      "number": 24,
+      "title": "Add commit timeline chart",
+      "state": "open",
+      "labels": [],
+      "milestone": "Dashboard V2",
+      "created_at": "2025-11-24T03:56:23Z",
+      "updated_at": "2025-12-02T19:13:39Z"
+    }
+  ],
+  "pull_requests": [
+    {
+      "number": 62,
+      "title": "Codex Self-Test PR",
+      "state": "closed",
+      "created_at": "2025-11-26T03:21:48Z",
+      "updated_at": "2025-11-26T03:21:52Z"
+    },
+    {
+      "number": 60,
+      "title": "Codex Self-Test: Issue #59",
+      "state": "closed",
+      "created_at": "2025-11-26T02:51:22Z",
+      "updated_at": "2025-11-26T02:51:26Z"
+    },
+    {
+      "number": 58,
+      "title": "Codex Self-Test: Issue #57",
+      "state": "closed",
+      "created_at": "2025-11-26T02:32:15Z",
+      "updated_at": "2025-11-26T02:32:18Z"
+    },
+    {
+      "number": 56,
+      "title": "Codex Self-Test: Issue #55",
+      "state": "closed",
+      "created_at": "2025-11-26T02:26:53Z",
+      "updated_at": "2025-11-26T02:26:57Z"
+    },
+    {
+      "number": 54,
+      "title": "Codex Self-Test: Issue #53",
+      "state": "closed",
+      "created_at": "2025-11-26T01:38:48Z",
+      "updated_at": "2025-11-26T01:38:51Z"
+    },
+    {
+      "number": 52,
+      "title": "Test Codex PR",
+      "state": "closed",
+      "created_at": "2025-11-26T01:00:18Z",
+      "updated_at": "2025-11-26T02:44:38Z"
+    },
+    {
+      "number": 46,
+      "title": "Codex Self-Test: Issue #45",
+      "state": "closed",
+      "created_at": "2025-11-25T23:47:52Z",
+      "updated_at": "2025-11-25T23:47:55Z"
+    },
+    {
+      "number": 7,
+      "title": "Cleanup/remove legacy codex v2",
+      "state": "closed",
+      "created_at": "2025-11-23T02:39:11Z",
+      "updated_at": "2025-11-29T02:36:53Z"
+    },
+    {
+      "number": 6,
+      "title": "chore: remove legacy Codex dashboard workflow",
+      "state": "closed",
+      "created_at": "2025-11-22T01:46:23Z",
+      "updated_at": "2025-11-29T02:36:38Z"
+    },
+    {
+      "number": 5,
+      "title": "Sprint 5 — Harden Codex Validation Monitor & Prepare Pipeline for Full Test Suite",
+      "state": "closed",
+      "created_at": "2025-11-20T01:15:48Z",
+      "updated_at": "2025-11-29T02:36:25Z"
+    },
+    {
+      "number": 4,
+      "title": "Sprint 5 testing v2 update",
+      "state": "closed",
+      "created_at": "2025-11-20T00:07:36Z",
+      "updated_at": "2025-11-23T23:56:49Z"
+    },
+    {
+      "number": 3,
+      "title": "Codex: Run Minimal Sprint-5 Harness & Stabilize Server Boot",
+      "state": "closed",
+      "created_at": "2025-11-19T16:50:55Z",
+      "updated_at": "2025-11-29T02:38:06Z"
+    },
+    {
+      "number": 2,
+      "title": "Sprint 5 testing",
+      "state": "closed",
+      "created_at": "2025-11-17T18:51:48Z",
+      "updated_at": "2025-11-18T04:19:46Z"
+    }
+  ]
+}
